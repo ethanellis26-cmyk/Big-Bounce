@@ -885,7 +885,798 @@ const CHAR_OUTFITS = Object.freeze({
       updateStatus("Ball in flight.");
     }
 
-    // ... rest of your original file unchanged ...
+    // -----------------------------
+    // Update loops
+    // -----------------------------
+    function updatePlayer(dt) {
+      const left = keys["ArrowLeft"];
+      const right = keys["ArrowRight"];
+
+      const speedMul = currentCharacter?.stats?.speed ?? 1;
+      const effectiveSpeed = player.baseSpeed * speedMul;
+
+      if (left) player.x -= effectiveSpeed * dt;
+      if (right) player.x += effectiveSpeed * dt;
+
+      player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+
+      player.vy += arena.gravity * dt;
+      player.y += player.vy * dt;
+
+      const gy = groundY();
+      if (player.y > gy) { player.y = gy; player.vy = 0; }
+
+      const hands = getHandsRect();
+      const overflow = (hands.x + hands.w) - (wallX - 6);
+      if (overflow > 0) {
+        player.x -= overflow;
+        player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+      }
+    }
+
+    function markInvalid(reason) {
+      if (!shot.invalid) {
+        shot.invalid = true;
+        shot.invalidReason = reason;
+        shot.pendingPoints = 0;
+      }
+    }
+
+    function updateBall(dt) {
+      if (!ball.active) return;
+
+      ball.vy += arena.gravity * dt;
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+
+      ball.vx *= arena.airDrag;
+      ball.vy *= arena.airDrag;
+
+      if (arena.roofType !== "none") {
+        const ry = roofAtX(ball.x);
+
+        if (ball.y - ball.r <= ry && ball.vy < 0) {
+          let nx = 0, ny = 1;
+
+          if (arena.roofType === "angled") {
+            const y0 = roofAtX(playLeft);
+            const y1 = roofAtX(wallX);
+
+            const dx = (wallX - playLeft);
+            const dy = (y1 - y0);
+
+            let n1x = -dy, n1y = dx;
+            let n2x = dy,  n2y = -dx;
+
+            const len1 = Math.hypot(n1x, n1y) || 1;
+            n1x /= len1; n1y /= len1;
+
+            const len2 = Math.hypot(n2x, n2y) || 1;
+            n2x /= len2; n2y /= len2;
+
+            if (n1y > 0) { nx = n1x; ny = n1y; }
+            else         { nx = n2x; ny = n2y; }
+          }
+
+          const EPS = 0.6;
+          ball.y = ry + ball.r + EPS * ny;
+          ball.x = ball.x + EPS * nx;
+
+          const e = arena.restitutionRoof;
+          const vDotN = ball.vx * nx + ball.vy * ny;
+
+          if (vDotN < 0) {
+            ball.vx = ball.vx - (1 + e) * vDotN * nx;
+            ball.vy = ball.vy - (1 + e) * vDotN * ny;
+          }
+
+          if (!shot.hitWall) {
+            shot.hitRoofBeforeWall = true;
+            markInvalid("Roof hit before wall");
+
+            if (!shot.popupCeilingShown) {
+              shot.popupCeilingShown = true;
+              showPopup("Ceiling Fault", { size: 64, color: "#ffffff" });
+            }
+          }
+        }
+      }
+
+      if (ball.y + ball.r >= floorY) {
+        ball.y = floorY - ball.r;
+        ball.vy = -ball.vy * arena.restitutionFloor;
+        ball.vx *= arena.floorFriction;
+
+        if (!shot.hitWall) shot.bouncedBeforeWall = true;
+      }
+
+      if (ball.x + ball.r >= wallX) {
+        const withinWallFace = (ball.y + ball.r >= arena.wallTopY) && (ball.y - ball.r <= floorY);
+
+        if (!withinWallFace) {
+          if (!shot.hitWall) {
+            markInvalid("Missed wall face");
+            state = State.RETURNING;
+            updateStatus("Missed wall face — still catch to finish.");
+          }
+          ball.x = wallX - ball.r;
+          ball.vx = -Math.abs(ball.vx) * arena.restitutionWall;
+        } else {
+          ball.x = wallX - ball.r;
+
+          if (!shot.hitWall) {
+            shot.hitWall = true;
+            shot.wallHitY = ball.y;
+            lastWallHitY = ball.y;
+
+            if (!shot.bouncedBeforeWall) markInvalid("No bounce before wall");
+            if (!shot.invalid) shot.pendingPoints = scoreFromWallHit(ball.y);
+
+            state = State.RETURNING;
+            updateStatus("Wall hit — catch it!");
+          }
+
+          ball.vx = -Math.abs(ball.vx) * arena.restitutionWall;
+        }
+      }
+
+      if (ball.x - ball.r < playLeft) {
+        ball.x = playLeft + ball.r;
+        ball.vx = Math.abs(ball.vx) * 0.6;
+      }
+    }
+
+    // -----------------------------
+    // Multiplayer turn/round resolution
+    // -----------------------------
+    function endTurnWithPoints(pts) {
+      const ai = match.activeIndex;
+      const oi = 1 - ai;
+
+      const p = match.players[ai];
+      p.lastThrow = pts;
+
+      p.throws++;
+      p.sum += pts;
+      p.best = (p.best == null) ? pts : Math.max(p.best, pts);
+      if (pts === 100) p.walmart100s++;
+
+      match.roundShots[ai] = pts;
+
+      if (ai === match.roundStarter && pts === 0 && match.roundShots[oi] == null) {
+        match.firstPlayerScoredZeroThisRound = true;
+        showPopup("Layup Chance", { size: 64, color: "#ffffff" });
+      }
+
+      if (match.roundShots[oi] == null) {
+        match.activeIndex = oi;
+        setCurrentCharacterForTurn();
+        startNewShot();
+        updateStatus(`P${match.activeIndex + 1} turn`);
+        return;
+      }
+
+      const p1 = match.roundShots[0];
+      const p2 = match.roundShots[1];
+
+      const first = match.roundStarter;
+      const second = 1 - first;
+      const firstPts = match.roundShots[first];
+      const secondPts = match.roundShots[second];
+
+      if (match.firstPlayerScoredZeroThisRound && firstPts === 0 && secondPts > firstPts) {
+        match.players[second].layups++;
+        showPopup("Layup", { size: 74, color: "#ffffff" });
+      }
+
+      if (p1 > p2) match.players[0].roundsWon++;
+      else if (p2 > p1) match.players[1].roundsWon++;
+
+      if (match.players[0].roundsWon >= match.roundsToWin) {
+        match.winnerIndex = 0;
+        state = State.MATCH_OVER;
+        updateStatus("Match over!");
+        return;
+      }
+      if (match.players[1].roundsWon >= match.roundsToWin) {
+        match.winnerIndex = 1;
+        state = State.MATCH_OVER;
+        updateStatus("Match over!");
+        return;
+      }
+
+      match.roundNum++;
+      match.roundShots = [null, null];
+      match.roundStarter = 1 - match.roundStarter;
+      match.activeIndex = match.roundStarter;
+      match.firstPlayerScoredZeroThisRound = false;
+
+      setCurrentCharacterForTurn();
+      startNewShot();
+      updateStatus(`Round ${match.roundNum} — P${match.activeIndex + 1} starts`);
+    }
+
+    // -----------------------------
+    // Failsafe timeout
+    // -----------------------------
+    function forceSingleTimeout() {
+      if (match.enabled) return;
+      if (!ball.active) return;
+      if (state !== State.FLIGHT && state !== State.RETURNING) return;
+      if (state === State.SINGLE_OVER) return;
+
+      showPopup("Timeout", { size: 64, color: "#ffffff" });
+
+      ball.active = false;
+      singleShotTimer = 0;
+
+      const pts = 0;
+      singleStats.throws++;
+      singleStats.sum += pts;
+      singleStats.best = (singleStats.best == null) ? pts : Math.max(singleStats.best, pts);
+      lastThrowPoints = 0;
+
+      if (singleRunIsOver()) endSingleRun();
+      else {
+        startNewShot();
+        updateStatus("Timeout. Lock POWER.");
+      }
+    }
+
+    function resolveCatchOrMiss() {
+      const hands = getHandsRect();
+      const ballRect = { x: ball.x - ball.r, y: ball.y - ball.r, w: ball.r * 2, h: ball.r * 2 };
+
+      if (ball.vy > 0 && rectsOverlap(hands, ballRect)) {
+        const pts = shot.pendingPoints;
+        ball.active = false;
+
+        if (match.enabled) match.players[match.activeIndex].catches++;
+        else singleStats.catches++;
+
+        if (pts === 100) showPopup("Walmart 100!", { size: 84, color: "#3b82f6" });
+
+        if (match.enabled) {
+          endTurnWithPoints(pts);
+        } else {
+          singleStats.throws++;
+          singleStats.sum += pts;
+          singleStats.best = (singleStats.best == null) ? pts : Math.max(singleStats.best, pts);
+          if (pts === 100) singleStats.walmart100s++;
+
+          lastThrowPoints = pts;
+          singleShotTimer = 0;
+
+          if (singleRunIsOver()) endSingleRun();
+          else {
+            startNewShot();
+            updateStatus("Caught! Lock POWER.");
+          }
+        }
+        return;
+      }
+
+      if (ball.y + ball.r >= floorY) {
+        showPopup("Missed Catch", { size: 64, color: "#ffffff" });
+
+        ball.active = false;
+
+        if (match.enabled) {
+          endTurnWithPoints(0);
+        } else {
+          const pts = 0;
+          singleStats.throws++;
+          singleStats.sum += pts;
+          singleStats.best = (singleStats.best == null) ? pts : Math.max(singleStats.best, pts);
+
+          lastThrowPoints = 0;
+          singleShotTimer = 0;
+
+          if (singleRunIsOver()) endSingleRun();
+          else {
+            startNewShot();
+            updateStatus("Missed catch. Lock POWER.");
+          }
+        }
+        return;
+      }
+    }
+
+    function update(dt) {
+      if (state === State.TITLE) { updatePopup(dt); return; }
+
+      updatePopup(dt);
+
+      const canPlay = !match.enabled || match.started;
+
+      if (arena.level && state !== State.MATCH_OVER && state !== State.SINGLE_OVER && canPlay) updatePlayer(dt);
+
+      if (state === State.POWER_METER) {
+        resetBallToHand();
+        meterStep(dt, effectivePowerSpeed());
+      } else if (state === State.ANGLE_METER) {
+        resetBallToHand();
+        meterStep(dt, effectiveAngleSpeed());
+      } else if (state === State.FLIGHT) {
+        updateBall(dt);
+
+        if (!match.enabled && ball.active) {
+          singleShotTimer -= dt;
+          if (singleShotTimer <= 0) forceSingleTimeout();
+        }
+      } else if (state === State.RETURNING) {
+        updateBall(dt);
+        resolveCatchOrMiss();
+
+        if (!match.enabled && ball.active) {
+          singleShotTimer -= dt;
+          if (singleShotTimer <= 0) forceSingleTimeout();
+        }
+      }
+    }
+
+    // -----------------------------
+    // Drawing
+    // -----------------------------
+    function drawPowerMeter() {
+      const pad = 16;
+      const barW = 560;
+      const barH = 18;
+      const x = (W - barW) / 2;
+      const y = 18;
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.08)";
+      ctx.fillRect(x - pad, y - pad, barW + pad * 2, 92);
+
+      ctx.fillStyle = arena.theme.ui;
+      ctx.font = "18px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("POWER METER", W / 2, y + 8);
+
+      const barY = y + 28;
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fillRect(x, barY, barW, barH);
+
+      const mx = x + meter.value * barW;
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(mx, barY - 8);
+      ctx.lineTo(mx, barY + barH + 8);
+      ctx.stroke();
+
+      ctx.fillStyle = arena.theme.ui;
+      ctx.font = "13px system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText("Low", x, barY + barH + 24);
+      ctx.textAlign = "right";
+      ctx.fillText("High", x + barW, barY + barH + 24);
+
+      ctx.textAlign = "center";
+      ctx.font = "14px system-ui";
+      ctx.fillText("Press SPACE or Click to lock", W / 2, barY + barH + 46);
+    }
+
+    function drawAngleMeterVertical() {
+      const pad = 16;
+      const barH = 300;
+      const barW = 18;
+
+      const x = wallX - 70;
+      const y = (H - barH) / 2;
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.08)";
+      ctx.fillRect(x - pad, y - pad, barW + pad * 2, barH + 90);
+
+      ctx.fillStyle = arena.theme.ui;
+      ctx.font = "18px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText("ANGLE METER", x + barW / 2, y - 6);
+
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fillRect(x, y, barW, barH);
+
+      const my = y + (1 - meter.value) * barH;
+
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x - 8, my);
+      ctx.lineTo(x + barW + 8, my);
+      ctx.stroke();
+
+      ctx.fillStyle = arena.theme.ui;
+      ctx.font = "13px system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText("-60°", x - 18, y - 14);
+      ctx.fillText("-90°", x - 18, y + barH + 16);
+
+      ctx.textAlign = "center";
+      ctx.font = "14px system-ui";
+      ctx.fillText("Press SPACE or Click", x + barW / 2, y + barH + 42);
+    }
+
+    function drawRoof() {
+      if (arena.roofType === "none") return;
+
+      ctx.strokeStyle = arena.theme.roof;
+      ctx.lineWidth = 12;
+
+      ctx.beginPath();
+      const y0 = roofAtX(playLeft);
+      const y1 = roofAtX(wallX);
+      ctx.moveTo(playLeft, y0);
+      ctx.lineTo(wallX, y1);
+      ctx.stroke();
+
+      if (arena.level?.id === 0) {
+        ctx.strokeStyle = "rgba(0,0,0,0.25)";
+        ctx.lineWidth = 16;
+
+        ctx.beginPath();
+        ctx.moveTo(playLeft, y0 + 6);
+        ctx.lineTo(wallX, y1 + 6);
+        ctx.stroke();
+      }
+    }
+
+    // NEW: layered character renderer
+    function drawCharacter(x, y, w, h, outfit) {
+      const hairH  = h * 0.10;
+      const faceH  = h * 0.25;
+      const shirtH = h * 0.30;
+      const pantsH = h * 0.35;
+
+      // Hair
+      ctx.fillStyle = outfit.hair;
+      ctx.fillRect(x, y, w, hairH);
+
+      // Face
+      ctx.fillStyle = outfit.face;
+      ctx.fillRect(x, y + hairH, w, faceH);
+
+      // Shirt
+      ctx.fillStyle = outfit.shirt;
+      ctx.fillRect(x, y + hairH + faceH, w, shirtH);
+
+      // Pants
+      ctx.fillStyle = outfit.pants;
+      ctx.fillRect(x, y + hairH + faceH + shirtH, w, pantsH);
+
+      // Outline
+      ctx.strokeStyle = outfit.outline ?? "#111827";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+
+      // Tiny eyes (optional but helps the face read)
+      const eyeY = y + hairH + faceH * 0.48;
+      const eyeDX = w * 0.18;
+      const eyeR = Math.max(1.8, Math.min(3.2, w * 0.03));
+
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.beginPath();
+      ctx.arc(x + w * 0.5 - eyeDX, eyeY, eyeR, 0, Math.PI * 2);
+      ctx.arc(x + w * 0.5 + eyeDX, eyeY, eyeR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Panel click-to-select P1/P2 during setup
+    function panelHitTestPlayerBlocks(mx, my) {
+      if (!match.enabled || match.started) return null;
+      if (mx > PANEL_W) return null;
+
+      const blockY = 130;
+      const blockH = 270;
+      const gap = 300;
+
+      const p1Top = blockY - 30;
+      const p1Bot = p1Top + blockH;
+      const p2Top = blockY + gap - 30;
+      const p2Bot = p2Top + blockH;
+
+      if (my >= p1Top && my <= p1Bot) return 0;
+      if (my >= p2Top && my <= p2Bot) return 1;
+      return null;
+    }
+
+    canvas.addEventListener("mousedown", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+      const hit = panelHitTestPlayerBlocks(mx, my);
+      if (hit != null) {
+        match.setupPickIndex = hit;
+        const cid = match.players[hit].characterId ?? 0;
+        currentCharacter = CHARACTERS[cid] ?? CHARACTERS[0];
+        updateCharacterButtons();
+        updateStatus(`Assigning for P${hit + 1} (click character buttons)`);
+        refreshBeginButton();
+      }
+    });
+
+    function drawSidePanel() {
+      ctx.fillStyle = "#0b1220";
+      ctx.fillRect(0, 0, PANEL_W, H);
+
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fillRect(PANEL_W - 2, 0, 2, H);
+
+      ctx.fillStyle = "#e5e7eb";
+      ctx.textAlign = "left";
+
+      ctx.font = "18px system-ui";
+      ctx.fillText(match.enabled ? "2P HOTSEAT" : "SINGLE", 14, 28);
+
+      ctx.font = "14px system-ui";
+      if (match.enabled) {
+        ctx.fillText(`Round: ${match.roundNum}`, 14, 52);
+        ctx.fillText(`First to: ${match.roundsToWin}`, 14, 72);
+        ctx.fillText(match.started ? `Turn: P${match.activeIndex + 1}` : `Setup: click P1/P2`, 14, 92);
+      } else {
+        const avg = avgScore(singleStats);
+        const best = singleStats.best ?? "-";
+        const pct = Math.round(catchPct(singleStats) * 100);
+
+        ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, 52);
+        ctx.fillText(`Best: ${best}`, 14, 72);
+        ctx.fillText(`Catch%: ${pct}%`, 14, 92);
+        ctx.fillText(`Walmart100s: ${singleStats.walmart100s}`, 14, 112);
+        ctx.fillText(currentCharacter ? `Char: ${currentCharacter.name}` : "", 14, 132);
+      }
+
+      const blockY = 130;
+      const blockH = 270;
+
+      function drawPlayerBlock(i, y) {
+        const p = match.players[i];
+        const ch = (p.characterId != null) ? CHARACTERS[p.characterId] : null;
+
+        const isActive = match.enabled && match.started && match.activeIndex === i && state !== State.MATCH_OVER;
+        const isSetupSel = match.enabled && !match.started && match.setupPickIndex === i;
+
+        if (isActive) {
+          ctx.fillStyle = "rgba(34, 197, 94, 0.16)";
+          ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
+        } else if (isSetupSel) {
+          ctx.fillStyle = "rgba(250, 204, 21, 0.14)";
+          ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
+        }
+
+        ctx.fillStyle = "#e5e7eb";
+        ctx.font = "16px system-ui";
+        ctx.fillText(`${p.name}`, 14, y);
+
+        ctx.font = "13px system-ui";
+        if (ch) ctx.fillText(`Char: ${ch.name} (${tiersTextFor(ch)})`, 14, y + 22);
+        else ctx.fillText(`Char: (pick one)`, 14, y + 22);
+
+        ctx.font = "54px system-ui";
+        ctx.fillText(`${p.roundsWon}`, 14, y + 82);
+        ctx.font = "13px system-ui";
+        ctx.fillText("ROUNDS", 14, y + 102);
+
+        const avg = p.throws > 0 ? (p.sum / p.throws) : 0;
+        const pct = p.attempts > 0 ? Math.round((p.catches / p.attempts) * 100) : 0;
+        const best = (p.best == null) ? "-" : p.best;
+
+        ctx.font = "14px system-ui";
+        ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, y + 132);
+        ctx.fillText(`Catch%: ${pct}%`, 14, y + 154);
+        ctx.fillText(`Best: ${best}`, 14, y + 176);
+        ctx.fillText(`Walmart100s: ${p.walmart100s}`, 14, y + 198);
+        ctx.fillText(`Layups: ${p.layups}`, 14, y + 220);
+
+        const s = match.roundShots[i];
+        ctx.fillText(`This round: ${s == null ? "…" : s}`, 14, y + 242);
+        ctx.fillText(`Last: ${p.lastThrow ?? "-"}`, 14, y + 264);
+      }
+
+      if (match.enabled) {
+        drawPlayerBlock(0, blockY);
+        drawPlayerBlock(1, blockY + 300);
+      }
+
+      if (match.enabled && state === State.MATCH_OVER && match.winnerIndex != null) {
+        ctx.fillStyle = "rgba(15,23,42,0.85)";
+        ctx.fillRect(8, H - 150, PANEL_W - 16, 130);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.font = "18px system-ui";
+        ctx.fillText(`WINNER: ${match.players[match.winnerIndex].name}`, PANEL_W / 2, H - 112);
+
+        ctx.font = "14px system-ui";
+        ctx.fillText(`Final: ${match.players[0].roundsWon}–${match.players[1].roundsWon}`, PANEL_W / 2, H - 86);
+        ctx.fillText("Press R to reset", PANEL_W / 2, H - 56);
+      }
+
+      ctx.textAlign = "left";
+    }
+
+    function drawTitleScreen() {
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+      ctx.fillRect(W/2 - 360, H/2 - 170, 720, 340);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+
+      ctx.font = "bold 86px Trebuchet MS, system-ui";
+      ctx.fillText("BIG BOUNCE", W/2, H/2 - 40);
+
+      ctx.font = "bold 22px Trebuchet MS, system-ui";
+      ctx.fillText("Press SPACE or Click to Start", W/2, H/2 + 20);
+
+      ctx.font = "16px Trebuchet MS, system-ui";
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText("Hotseat: pick level + characters (P1/P2), then Begin Game.", W/2, H/2 + 64);
+
+      ctx.textAlign = "left";
+    }
+
+    function drawSingleOverOverlay() {
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(playLeft, 0, W - playLeft, H);
+
+      const cardW = 740;
+      const cardH = 360;
+      const cx = playLeft + (W - playLeft) / 2;
+      const cy = H / 2;
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+      ctx.fillRect(cx - cardW/2, cy - cardH/2, cardW, cardH);
+
+      const total = singleStats.sum;
+      const avg = avgScore(singleStats);
+      const best = singleStats.best ?? "-";
+      const pct = Math.round(catchPct(singleStats) * 100);
+      const w100 = singleStats.walmart100s;
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+
+      ctx.font = "900 64px Trebuchet MS, system-ui";
+      ctx.fillText("RUN OVER", cx, cy - 110);
+
+      ctx.font = "700 24px Trebuchet MS, system-ui";
+      ctx.fillText(`Turns: ${Math.min(singleStats.attempts, SINGLE_TURNS)}/${SINGLE_TURNS}`, cx, cy - 68);
+
+      ctx.font = "22px Trebuchet MS, system-ui";
+      ctx.fillText(`Total Points: ${total}`, cx, cy - 18);
+      ctx.fillText(`Avg: ${avg.toFixed(1)}   |   Best: ${best}`, cx, cy + 20);
+      ctx.fillText(`Catch%: ${pct}%   |   Walmart100s: ${w100}`, cx, cy + 58);
+
+      ctx.font = "18px Trebuchet MS, system-ui";
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText("Press R to restart run", cx, cy + 120);
+
+      ctx.textAlign = "left";
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      drawSidePanel();
+
+      ctx.fillStyle = arena.theme?.bg ?? "#f8fafc";
+      ctx.fillRect(playLeft, 0, W - playLeft, H);
+
+      drawRoof();
+
+      ctx.fillStyle = arena.theme?.floor;
+      ctx.fillRect(playLeft, floorY, W - playLeft, H - floorY);
+
+      if (arena.level?.id === 1) {
+        drawCraters("rgba(255,255,255,0.25)", 22, "floor");
+        drawCraters("rgba(255,255,255,0.25)", 14, "wall");
+      }
+
+      ctx.fillStyle = arena.theme?.wall;
+      ctx.fillRect(wallX, arena.wallTopY, W - wallX, floorY - arena.wallTopY);
+
+      if (arena.level?.id === 2) {
+        drawConcreteTexture(playLeft, floorY, W - playLeft, H - floorY);
+        drawConcreteTexture(wallX, arena.wallTopY, W - wallX, floorY - arena.wallTopY);
+      }
+
+      // NEW: draw layered character
+      const outfit = currentCharacter?.outfit ?? DEFAULT_OUTFIT;
+      drawCharacter(player.x, player.y, player.w, player.h, outfit);
+
+      const hands = getHandsRect();
+      ctx.fillStyle = "rgba(34, 197, 94, 0.35)";
+      ctx.fillRect(hands.x, hands.y, hands.w, hands.h);
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.75)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hands.x, hands.y, hands.w, hands.h);
+
+      ctx.beginPath();
+      ctx.fillStyle = "#ef4444";
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 2;
+      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      if (lastWallHitY != null) {
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wallX, lastWallHitY);
+        ctx.lineTo(wallX + 30, lastWallHitY);
+        ctx.stroke();
+      }
+
+      if (state === State.SELECT_LEVEL) {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.10)";
+        ctx.fillRect(W/2 - 320, H/2 - 70, 640, 140);
+        ctx.fillStyle = arena.theme.ui;
+        ctx.textAlign = "center";
+        ctx.font = "22px system-ui";
+        ctx.fillText(match.enabled ? "Pick a Level, Assign P1/P2, then Begin Game" : "Select a Level Above to Start", W/2, H/2 - 10);
+        ctx.font = "14px system-ui";
+        ctx.fillText("Townhouse = angled roof | Moon = low gravity | Berlin Wall = no roof + tall wall", W/2, H/2 + 20);
+        ctx.textAlign = "left";
+      }
+
+      if (state === State.POWER_METER) drawPowerMeter();
+      else if (state === State.ANGLE_METER) drawAngleMeterVertical();
+      else if (state === State.FLIGHT || state === State.RETURNING) {
+        ctx.fillStyle = "rgba(15,23,42,0.08)";
+        ctx.fillRect(W/2 - 280, 18, 560, 42);
+        ctx.fillStyle = arena.theme.ui;
+        ctx.textAlign = "center";
+        ctx.font = "16px system-ui";
+        ctx.fillText("Move with ← → and jump with ↑ to catch the ball", W/2, 46);
+        ctx.textAlign = "left";
+      }
+
+      if (match.enabled && match.started && state !== State.MATCH_OVER) {
+        ctx.fillStyle = "rgba(15,23,42,0.10)";
+        ctx.fillRect(playLeft + 10, 10, 320, 44);
+        ctx.fillStyle = arena.theme.ui;
+        ctx.textAlign = "left";
+        ctx.font = "18px system-ui";
+        ctx.fillText(`TURN: P${match.activeIndex + 1}`, playLeft + 22, 38);
+      }
+
+      drawPopup();
+
+      if (state === State.SINGLE_OVER) drawSingleOverOverlay();
+      if (state === State.TITLE) drawTitleScreen();
+    }
+
+    // -----------------------------
+    // Loop
+    // -----------------------------
+    let last = performance.now();
+    function loop(t) {
+      const dt = Math.min(0.033, (t - last) / 1000);
+      last = t;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // -----------------------------
+    // Init
+    // -----------------------------
+    function initButtons() {
+      document.getElementById("modeSingle").classList.toggle("active", true);
+      document.getElementById("modeMulti").classList.toggle("active", false);
+    }
+
+    initButtons();
+    setMode(false);
+    updateCharacterButtons();
+    resetGame();
+    state = State.TITLE;
+    updateStatus("Press SPACE or Click to start.");
+    refreshBeginButton();
+    requestAnimationFrame(loop);
   </script>
 </body>
 </html>
