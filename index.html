@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Big Bounce (Levels + Characters + Hotseat)</title>
+  <title>Big Bounce (Levels + Characters + Hotseat + Campaign)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { margin: 0; background: #111; color: #eee; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
@@ -23,10 +23,7 @@
       background: rgba(34, 197, 94, 0.22);
       border-color: rgba(34, 197, 94, 0.6);
     }
-    button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -36,8 +33,9 @@
 
     <div class="row">
       <button id="modeSingle">Single Player</button>
-      <button id="modeMulti">2P Hotseat (Rounds to 7)</button>
-      <button id="btnBegin" disabled>Begin Game</button>
+      <button id="modeMulti">Two Player</button>
+      <button id="modeCampaign">Campaign</button>
+      <button id="btnBegin" disabled>Begin</button>
     </div>
 
     <div class="row">
@@ -75,32 +73,34 @@
     const W = canvas.width;
     const H = canvas.height;
 
-    const PANEL_W = 220;              // LEFT VERTICAL MULTIPLAYER PANEL
+    const PANEL_W = 220;              // LEFT VERTICAL PANEL
     const playLeft = PANEL_W;         // gameplay starts here
     const floorY = H - 20;
     const wallX = W - 140;
+
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+    // -----------------------------
+    // Game Mode
+    // -----------------------------
+    const Mode = Object.freeze({
+      SINGLE: "SINGLE",
+      MULTI: "MULTI",
+      CAMPAIGN: "CAMPAIGN"
+    });
+    let gameMode = Mode.SINGLE;
 
     // -----------------------------
     // Single-player run config + timeout
     // -----------------------------
     const SINGLE_TURNS = 10;
     const SINGLE_SHOT_TIMEOUT_S = 8;
-
-    // counts down only for single-player shots while ball is active
     let singleShotTimer = 0;
-
-    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
     // -----------------------------
     // Popups (big on-screen callouts)
     // -----------------------------
-    const popup = {
-      text: "",
-      color: "#ffffff",
-      size: 72,
-      timer: 0,
-      duration: 1.2
-    };
+    const popup = { text: "", color: "#ffffff", size: 72, timer: 0, duration: 1.2 };
 
     function showPopup(text, opts = {}) {
       popup.text = text;
@@ -109,11 +109,7 @@
       popup.duration = opts.duration ?? 1.2;
       popup.timer = popup.duration;
     }
-
-    function updatePopup(dt) {
-      if (popup.timer > 0) popup.timer = Math.max(0, popup.timer - dt);
-    }
-
+    function updatePopup(dt) { if (popup.timer > 0) popup.timer = Math.max(0, popup.timer - dt); }
     function drawPopup() {
       if (popup.timer <= 0 || !popup.text) return;
 
@@ -125,7 +121,6 @@
 
       ctx.save();
       ctx.globalAlpha = 0.15 + 0.85 * alpha;
-
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.font = `900 ${popup.size}px Trebuchet MS, system-ui`;
@@ -136,7 +131,6 @@
 
       ctx.fillStyle = popup.color;
       ctx.fillText(popup.text, cx, cy);
-
       ctx.restore();
     }
 
@@ -144,28 +138,10 @@
     // Level Themes (themed arenas)
     // -----------------------------
     const THEMES = {
-      townhouse: {
-        bg: "#e5e7eb",
-        floor: "#8b5a2b",
-        wall: "#f5f5f4",
-        roof: "#2a2a2a",
-        ui: "#0f172a"
-      },
+      townhouse: { bg: "#e5e7eb", floor: "#8b5a2b", wall: "#f5f5f4", roof: "#2a2a2a", ui: "#0f172a" },
       moon:      { bg: "#0b1020", floor: "#7a7a7a", wall: "#c7c7c7", roof: "#e5e7eb", ui: "#e5e7eb" },
-      berlin: {
-        bg: "#cfe8f7",
-        floor: "#9ca3af",
-        wall: "#374151",
-        roof: "#000000",
-        ui: "#0f172a"
-      },
-      squash: {
-        bg: "#f9f6f1",
-        floor: "#b45309",
-        wall: "#b91c1c",
-        roof: "#7f1d1d",
-        ui: "#0f172a"
-      }
+      berlin:    { bg: "#93b7d6", floor: "#9ca3af", wall: "#374151", roof: "#000000", ui: "#0f172a" },
+      squash:    { bg: "#6b7280", floor: "#b45309", wall: "#b91c1c", roof: "#7f1d1d", ui: "#0f172a" }
     };
 
     // -----------------------------
@@ -176,33 +152,24 @@
         id: 0, name: "Townhouse", roofType: "angled",
         roofLeftY: 450, roofRightY: 120,
         gravity: 1900, restitutionFloor: 0.80, restitutionWall: 0.85, restitutionRoof: 0.55,
-        wallTopY: null,
-        theme: THEMES.townhouse
+        wallTopY: null, theme: THEMES.townhouse
       },
       {
         id: 1, name: "Moon", roofType: "none",
         roofY: 110,
         gravity: 700, restitutionFloor: 0.55, restitutionWall: 0.82, restitutionRoof: 0.50,
-        wallTopY: null,
-        theme: THEMES.moon
+        wallTopY: null, theme: THEMES.moon
       },
       {
         id: 2, name: "Berlin Wall", roofType: "none",
         gravity: 2000, restitutionFloor: 0.88, restitutionWall: 0.87, restitutionRoof: 0.0,
-        wallTopY: 0,
-        theme: THEMES.berlin
+        wallTopY: 0, theme: THEMES.berlin
       },
       {
-        id: 3,
-        name: "Squash",
-        roofType: "flat",
-        roofY: 60,
-        gravity: 1850,
-        restitutionFloor: 0.95,
-        restitutionWall: 0.95,
-        restitutionRoof: 0.85,
-        wallTopY: 60,
-        theme: THEMES.squash
+        id: 3, name: "Squash", roofType: "flat",
+        roofY: 60, gravity: 1850,
+        restitutionFloor: 0.95, restitutionWall: 0.95, restitutionRoof: 0.85,
+        wallTopY: 60, theme: THEMES.squash
       }
     ];
 
@@ -253,41 +220,212 @@
       p.throws = 0; p.sum = 0; p.walmart100s = 0; p.layups = 0; p.attempts = 0; p.catches = 0; p.best = null; p.lastThrow = null;
     }
 
-    function canBeginGame() {
-      if (!match.enabled) return false;
-      const okLevel = !!arena.level;
-      const okChars = match.players[0].characterId != null && match.players[1].characterId != null;
-      return okLevel && okChars && !match.started;
+    // -----------------------------
+    // Campaign (Single-player vs Opponents)
+    // -----------------------------
+    const CAMPAIGN_OPPONENTS = [
+      { name: "Hans",    avg: 50, sigma: 28, fault: 0.08 },
+      { name: "Alex",    avg: 58, sigma: 24, fault: 0.06 },
+      { name: "Liam",    avg: 65, sigma: 20, fault: 0.05 },
+      { name: "Jake",    avg: 72, sigma: 16, fault: 0.04 },
+      { name: "Xavier",  avg: 78, sigma: 13, fault: 0.03 },
+      { name: "Edward",  avg: 83, sigma: 11, fault: 0.025 },
+      { name: "Brenden", avg: 88, sigma:  9, fault: 0.02 },
+      { name: "Ethan",   avg: 92, sigma:  7, fault: 0.015 }
+    ];
+
+    const campaign = {
+      enabled: false,
+      started: false,
+      opponentIndex: 0,        // starts at Hans
+      pointsToWin: 7,
+
+      playerCharId: 0,
+      oppCharId: null,
+
+      // match state
+      pScore: 0,
+      oScore: 0,
+
+      // point flow
+      pointStarter: 0,         // 0 = Opponent first, 1 = Player first (alternates each POINT, ties replay)
+      ghostScore: null,        // score for THIS point
+      awaitingPlayerThrow: false,
+
+      // opponent "hot/cold"
+      moodDelta: 0,
+      moodRemaining: 0,
+
+      // end-of-match banner
+      lastResult: null,        // "WIN" | "LOSE" | "COMPLETE"
+      justAdvanced: false
+    };
+
+    function charIdByName(name) {
+      const idx = CHARACTERS.findIndex(c => c.name === name);
+      return idx >= 0 ? CHARACTERS[idx].id : 0;
     }
 
-    function refreshBeginButton() {
-      beginBtn.disabled = !canBeginGame();
-      beginBtn.classList.toggle("active", canBeginGame());
+    function campaignOpponent() {
+      return CAMPAIGN_OPPONENTS[clamp(campaign.opponentIndex, 0, CAMPAIGN_OPPONENTS.length - 1)];
     }
 
-    function beginGame() {
+    function resetCampaignMatch(keepProgress = true) {
+      if (!keepProgress) campaign.opponentIndex = 0;
+
+      campaign.pScore = 0;
+      campaign.oScore = 0;
+      campaign.pointStarter = 0; // start with opponent first
+      campaign.ghostScore = null;
+      campaign.awaitingPlayerThrow = false;
+
+      campaign.moodDelta = 0;
+      campaign.moodRemaining = 0;
+
+      campaign.lastResult = null;
+      campaign.justAdvanced = false;
+
+      const opp = campaignOpponent();
+      campaign.oppCharId = charIdByName(opp.name);
+    }
+
+    function randomNormal() {
+      // Box-Muller
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    function generateGhostScore() {
+      const opp = campaignOpponent();
+
+      // Rare ceiling faults (independent, very rare)
+      const rareCeilingFault = Math.random() < 0.005;
+
+      // General "fault" chance (score 0)
+      const generalFault = Math.random() < opp.fault;
+
+      if (rareCeilingFault) {
+        showPopup("Ceiling Fault", { size: 64, color: "#ffffff" });
+        return 0;
+      }
+      if (generalFault) {
+        if (Math.random() < 0.35) showPopup("Opponent Fault", { size: 56, color: "#ffffff" });
+        return 0;
+      }
+
+      // occasional hot/cold mini-streaks
+      if (campaign.moodRemaining <= 0) {
+        const roll = Math.random();
+        if (roll < 0.10) { campaign.moodDelta = +8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); }      // hot
+        else if (roll < 0.20) { campaign.moodDelta = -8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); } // cold
+        else { campaign.moodDelta = 0; campaign.moodRemaining = 0; }
+      }
+
+      const delta = campaign.moodDelta;
+      if (campaign.moodRemaining > 0) campaign.moodRemaining--;
+
+      const raw = (opp.avg + delta) + randomNormal() * opp.sigma;
+      return clamp(Math.round(raw), 0, 100);
+    }
+
+    function beginCampaignMatch() {
       if (!canBeginGame()) return;
-      match.started = true;
 
-      match.roundNum = 1;
-      match.roundStarter = 0;
-      match.activeIndex = match.roundStarter;
-      match.winnerIndex = null;
-      match.roundShots = [null, null];
-      match.firstPlayerScoredZeroThisRound = false;
+      campaign.started = true;
+      resetCampaignMatch(true);
+      setCampaignCurrentCharacter();
+      startNewPoint();
+      refreshBeginButton();
+      updateStatus("Campaign started! First to 7 points.");
+    }
 
-      match.players[0].roundsWon = 0; match.players[1].roundsWon = 0;
-      resetPlayerStats(match.players[0]);
-      resetPlayerStats(match.players[1]);
+    function setCampaignCurrentCharacter() {
+      campaign.playerCharId = currentCharacter.id;
+      campaign.oppCharId = charIdByName(campaignOpponent().name);
+    }
 
-      setCurrentCharacterForTurn();
+    function startNewPoint() {
+      campaign.ghostScore = null;
+      campaign.awaitingPlayerThrow = true;
+
+      if (campaign.pointStarter === 0) {
+        campaign.ghostScore = generateGhostScore();
+        showPopup(`${campaignOpponent().name}: ${campaign.ghostScore}`, { size: 58, color: "#ffffff" });
+        startNewShot();
+        state = State.POWER_METER;
+        updateStatus("Opponent scored — your turn. Lock POWER.");
+        return;
+      }
+
       startNewShot();
       state = State.POWER_METER;
-      updateStatus("Game started! P1 lock POWER.");
-      refreshBeginButton();
+      updateStatus("You go first. Lock POWER.");
     }
 
-    beginBtn.onclick = beginGame;
+    function resolveCampaignPoint(playerPts) {
+      if (campaign.pointStarter === 1 && campaign.ghostScore == null) {
+        campaign.ghostScore = generateGhostScore();
+        showPopup(`${campaignOpponent().name}: ${campaign.ghostScore}`, { size: 58, color: "#ffffff" });
+      }
+
+      const g = campaign.ghostScore ?? 0;
+
+      if (playerPts === g) {
+        showPopup("TIE — Replay", { size: 60, color: "#ffffff" });
+        campaign.ghostScore = null;
+        startNewPoint();
+        return;
+      }
+
+      if (playerPts > g) campaign.pScore++;
+      else campaign.oScore++;
+
+      campaign.pointStarter = 1 - campaign.pointStarter;
+
+      const matchOver =
+        (campaign.pScore >= campaign.pointsToWin) ||
+        (campaign.oScore >= campaign.pointsToWin);
+
+      if (!matchOver) {
+        campaign.ghostScore = null;
+        startNewPoint();
+        return;
+      }
+
+      const currentOppIndex = campaign.opponentIndex;
+
+      if (campaign.pScore >= campaign.pointsToWin) {
+        if (currentOppIndex >= CAMPAIGN_OPPONENTS.length - 1) {
+          campaign.lastResult = "COMPLETE";
+          campaign.started = false;
+          state = State.CAMPAIGN_OVER;
+          updateStatus("Campaign complete!");
+          return;
+        }
+
+        campaign.opponentIndex = currentOppIndex + 1;
+        campaign.started = false;
+
+        resetCampaignMatch(true);
+        campaign.lastResult = "WIN";
+
+        state = State.CAMPAIGN_OVER;
+        updateStatus("You won! Advance to next opponent.");
+        return;
+      }
+
+      campaign.opponentIndex = currentOppIndex;
+      campaign.started = false;
+
+      resetCampaignMatch(true);
+      campaign.lastResult = "LOSE";
+
+      state = State.CAMPAIGN_OVER;
+      updateStatus("You lost. Replay this opponent.");
+      return;
+    }
 
     // -----------------------------
     // Characters (tiers) + outfits
@@ -319,35 +457,14 @@
     const CHAR_OUTFITS = Object.freeze({
       Xavier:  { hair:"#3b2f2f", face:"#fde68a", shirt:"#ffffff", pants:"#1e3a8a", outline:DEFAULT_NOTE },
       Brenden: { hair:"#f97316", face:"#fde68a", shirt:"#93c5fd", pants:"#1e3a8a", outline:DEFAULT_NOTE },
-
-      // Ethan: hair brown, face fair, shirt green, pants black
       Ethan:   { hair:"#8b5e34", face:"#fef3c7", shirt:"#22c55e", pants:"#000000", outline:DEFAULT_NOTE },
-
-      // Edward: hair brown, face light pinkish, shirt red, pants tan
       Edward:  { hair:"#8b5e34", face:"#fee2e2", shirt:"#ef4444", pants:"#d2b48c", outline:DEFAULT_NOTE },
-
-      // Liam: hair black, face fair, shirt blue, pants camel
       Liam:    { hair:"#000000", face:"#fef3c7", shirt:"#3b82f6", pants:"#c19a6b", outline:DEFAULT_NOTE },
-
-      // Jake: Blonde hair, fair skin, dark grey shirt, off white pants
       Jake:    { hair:"#f7e27c", face:"#fef3c7", shirt:"#374151", pants:"#f5f5f4", outline:DEFAULT_NOTE },
-
-      // Hans: Black hair, brown skin, tan shirt, black pants
       Hans:    { hair:"#000000", face:"#8d5524", shirt:"#d2b48c", pants:"#000000", outline:DEFAULT_NOTE },
-
-      // Alex: light brown hair, fair skin, maroon shirt, grey pants
       Alex:    { hair:"#c4a484", face:"#fde68a", shirt:"#7f1d1d", pants:"#6b7280", outline:DEFAULT_NOTE }
     });
 
-    // ✅ Stats EXACTLY as you listed:
-    // Edward 1 5 2 4
-    // Ethan  5 5 5 5
-    // Xavier 5 4 1 2
-    // Brenden 4 2 5 1
-    // Liam   3 3 3 3
-    // Alex   5 5 1 1
-    // Hans   1 1 5 5
-    // Jake   2 1 4 5
     const CHARACTERS = [
       { id: 0, name: "Brenden", tiers: { control: 4, accuracy: 2, speed: 5, catching: 1 } },
       { id: 1, name: "Ethan",   tiers: { control: 5, accuracy: 5, speed: 5, catching: 5 } },
@@ -371,6 +488,12 @@
 
     let currentCharacter = CHARACTERS[0];
 
+    function tiersTextFor(charObj) {
+      const t = charObj?.tiers;
+      if (!t) return "";
+      return `C${t.control} A${t.accuracy} S${t.speed} H${t.catching}`;
+    }
+
     function updateCharacterButtons() {
       const activeCharId = match.enabled
         ? (match.started ? match.players[match.activeIndex].characterId : match.players[match.setupPickIndex].characterId)
@@ -392,6 +515,7 @@
 
     function applyCharacter(charIndex) {
       if (match.enabled && match.started) return;
+      if (campaign.enabled && campaign.started) return;
 
       if (match.enabled) {
         match.players[match.setupPickIndex].characterId = charIndex;
@@ -404,7 +528,13 @@
       } else {
         currentCharacter = CHARACTERS[charIndex];
         updateCharacterButtons();
-        updateStatus(`Character: ${currentCharacter.name}`);
+        if (campaign.enabled) {
+          setCampaignCurrentCharacter();
+          updateStatus(`Campaign: You = ${currentCharacter.name} vs ${campaignOpponent().name}`);
+        } else {
+          updateStatus(`Character: ${currentCharacter.name}`);
+        }
+        refreshBeginButton();
       }
     }
 
@@ -418,6 +548,7 @@
     // -----------------------------
     function applyLevel(levelIndex) {
       if (match.enabled && match.started) return;
+      if (campaign.enabled && campaign.started) return;
 
       const L = LEVELS[levelIndex];
       arena.level = L;
@@ -461,14 +592,73 @@
     document.getElementById("btn3").onclick = () => applyLevel(3);
 
     // -----------------------------
-    // Mode
+    // Mode switching + Begin button logic
     // -----------------------------
-    function setMode(isMulti) {
-      match.enabled = isMulti;
-      match.started = false;
+    function canBeginGame() {
+      const okLevel = !!arena.level;
 
-      document.getElementById("modeSingle").classList.toggle("active", !isMulti);
-      document.getElementById("modeMulti").classList.toggle("active", isMulti);
+      if (match.enabled) {
+        const okChars = match.players[0].characterId != null && match.players[1].characterId != null;
+        return okLevel && okChars && !match.started;
+      }
+
+      if (campaign.enabled) {
+        return okLevel && !campaign.started && state !== State.CAMPAIGN_OVER;
+      }
+
+      return false;
+    }
+
+    function refreshBeginButton() {
+      beginBtn.disabled = !canBeginGame();
+      beginBtn.classList.toggle("active", canBeginGame());
+
+      if (match.enabled) beginBtn.textContent = "Begin Match";
+      else if (campaign.enabled) beginBtn.textContent = "Begin Match";
+      else beginBtn.textContent = "Begin";
+    }
+
+    function beginGame() {
+      if (match.enabled) return beginHotseat();
+      if (campaign.enabled) return beginCampaignMatch();
+    }
+    beginBtn.onclick = beginGame;
+
+    function beginHotseat() {
+      if (!canBeginGame()) return;
+
+      match.started = true;
+
+      match.roundNum = 1;
+      match.roundStarter = 0;
+      match.activeIndex = match.roundStarter;
+      match.winnerIndex = null;
+      match.roundShots = [null, null];
+      match.firstPlayerScoredZeroThisRound = false;
+
+      match.players[0].roundsWon = 0; match.players[1].roundsWon = 0;
+      resetPlayerStats(match.players[0]);
+      resetPlayerStats(match.players[1]);
+
+      setCurrentCharacterForTurn();
+      startNewShot();
+      state = State.POWER_METER;
+      updateStatus("Game started! P1 lock POWER.");
+      refreshBeginButton();
+    }
+
+    function setMode(mode) {
+      gameMode = mode;
+
+      match.enabled = (mode === Mode.MULTI);
+      campaign.enabled = (mode === Mode.CAMPAIGN);
+
+      match.started = false;
+      campaign.started = false;
+
+      document.getElementById("modeSingle").classList.toggle("active", mode === Mode.SINGLE);
+      document.getElementById("modeMulti").classList.toggle("active", mode === Mode.MULTI);
+      document.getElementById("modeCampaign").classList.toggle("active", mode === Mode.CAMPAIGN);
 
       match.roundNum = 1;
       match.roundStarter = 0;
@@ -477,57 +667,52 @@
       match.roundShots = [null, null];
       match.setupPickIndex = 0;
       match.firstPlayerScoredZeroThisRound = false;
-
       match.players[0].roundsWon = 0; match.players[1].roundsWon = 0;
 
       resetSingleStats();
       resetPlayerStats(match.players[0]);
       resetPlayerStats(match.players[1]);
 
-      if (isMulti) {
+      if (mode === Mode.MULTI) {
         if (match.players[0].characterId == null) match.players[0].characterId = 0;
         if (match.players[1].characterId == null) match.players[1].characterId = 1;
         currentCharacter = CHARACTERS[match.players[0].characterId] ?? CHARACTERS[0];
       } else {
-        currentCharacter = CHARACTERS[0];
+        currentCharacter = currentCharacter ?? CHARACTERS[0];
+      }
+
+      if (mode === Mode.CAMPAIGN) {
+        resetCampaignMatch(true);
+        setCampaignCurrentCharacter();
       }
 
       updateCharacterButtons();
       resetGame();
       refreshBeginButton();
-      updateStatus(isMulti ? "2P Hotseat: pick a level, assign chars to P1/P2, then Begin Game." : "Single Player: pick a level.");
+
+      if (mode === Mode.MULTI) updateStatus("2P Hotseat: pick a level, assign chars to P1/P2, then Begin Game.");
+      else if (mode === Mode.CAMPAIGN) updateStatus(`Campaign: pick a level + your character, then Begin (Opponent: ${campaignOpponent().name})`);
+      else updateStatus("Single Player: pick a level.");
     }
 
-    document.getElementById("modeSingle").onclick = () => setMode(false);
-    document.getElementById("modeMulti").onclick  = () => setMode(true);
+    document.getElementById("modeSingle").onclick   = () => setMode(Mode.SINGLE);
+    document.getElementById("modeMulti").onclick    = () => setMode(Mode.MULTI);
+    document.getElementById("modeCampaign").onclick = () => setMode(Mode.CAMPAIGN);
 
     // -----------------------------
     // Player + Glove + Jump (↑)
     // -----------------------------
-    const player = {
-      x: playLeft + 20,
-      y: 0,
-      w: 80,
-      h: 110,
-      baseSpeed: 720,
-      vy: 0
-    };
+    const player = { x: playLeft + 20, y: 0, w: 80, h: 110, baseSpeed: 720, vy: 0 };
 
     function groundY() { return floorY - player.h; }
-
-    function isPlayerGrounded() {
-      return player.y >= groundY() - 0.5 && Math.abs(player.vy) < 0.01;
-    }
-
-    function jumpImpulse() {
-      const jumpH = player.h * 0.9;
-      return Math.sqrt(2 * arena.gravity * jumpH);
-    }
+    function isPlayerGrounded() { return player.y >= groundY() - 0.5 && Math.abs(player.vy) < 0.01; }
+    function jumpImpulse() { const jumpH = player.h * 0.9; return Math.sqrt(2 * arena.gravity * jumpH); }
 
     function attemptJump() {
-      if (state === State.TITLE || state === State.MATCH_OVER || state === State.SINGLE_OVER) return;
+      if (state === State.TITLE || state === State.MATCH_OVER || state === State.SINGLE_OVER || state === State.CAMPAIGN_OVER) return;
       if (!arena.level) return;
       if (match.enabled && !match.started) return;
+      if (campaign.enabled && !campaign.started) return;
       if (isPlayerGrounded()) player.vy = -jumpImpulse();
     }
 
@@ -553,8 +738,8 @@
     // -----------------------------
     // Screen shake (on 100)
     // -----------------------------
-    let screenShake = 0;     // seconds remaining
-    let screenShakeMag = 0;  // pixels
+    let screenShake = 0;
+    let screenShakeMag = 0;
 
     // -----------------------------
     // State machine
@@ -567,7 +752,8 @@
       FLIGHT: "FLIGHT",
       RETURNING: "RETURNING",
       MATCH_OVER: "MATCH_OVER",
-      SINGLE_OVER: "SINGLE_OVER"
+      SINGLE_OVER: "SINGLE_OVER",
+      CAMPAIGN_OVER: "CAMPAIGN_OVER"
     });
     let state = State.TITLE;
 
@@ -583,14 +769,8 @@
       lockedAngleRad: null
     };
 
-    function effectivePowerSpeed() {
-      const c = currentCharacter?.stats?.control ?? 1;
-      return meter.basePowerSpeed / c;
-    }
-    function effectiveAngleSpeed() {
-      const a = currentCharacter?.stats?.accuracy ?? 1;
-      return meter.baseAngleSpeed / a;
-    }
+    function effectivePowerSpeed() { const c = currentCharacter?.stats?.control ?? 1; return meter.basePowerSpeed / c; }
+    function effectiveAngleSpeed() { const a = currentCharacter?.stats?.accuracy ?? 1; return meter.baseAngleSpeed / a; }
 
     // -----------------------------
     // Shot context
@@ -615,15 +795,7 @@
     let lastThrowPoints = null;
     let lastWallHitY = null;
 
-    const singleStats = {
-      throws: 0,
-      sum: 0,
-      walmart100s: 0,
-      layups: 0,
-      attempts: 0,
-      catches: 0,
-      best: null
-    };
+    const singleStats = { throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catches: 0, best: null };
 
     function resetSingleStats() {
       singleStats.throws = 0;
@@ -653,31 +825,37 @@
       return clamp(Math.round(raw), 1, 100);
     }
 
-    function tiersTextFor(charObj) {
-      const t = charObj?.tiers;
-      if (!t) return "";
-      return `C${t.control} A${t.accuracy} S${t.speed} H${t.catching}`;
-    }
-
     function updateStatus(extra = "") {
       const lvl = arena.level ? ` | Level: ${arena.level.name}` : "";
-      if (!match.enabled) {
-        const last = (lastThrowPoints == null) ? "" : ` | Last: ${lastThrowPoints}`;
-        const inv = shot?.invalid ? ` | INVALID: ${shot.invalidReason}` : "";
-        const ch = currentCharacter ? ` | Char: ${currentCharacter.name} (${tiersTextFor(currentCharacter)})` : "";
 
-        const avg = avgScore(singleStats);
-        const best = singleStats.best ?? "-";
-        const pct = Math.round(catchPct(singleStats) * 100);
-        const w100 = singleStats.walmart100s;
-
-        statusEl.textContent =
-          `Avg: ${avg.toFixed(1)} | Best: ${best} | Catch%: ${pct}% | Walmart100s: ${w100}` +
-          `${last}${inv}${lvl}${ch}${extra ? " — " + extra : ""}`;
-      } else {
+      if (match.enabled) {
         const turn = match.started ? ` | Turn: P${match.activeIndex + 1}` : ` | Setup: click P1/P2 in panel`;
         statusEl.textContent = `2P Hotseat (to ${match.roundsToWin}) | Round ${match.roundNum}${lvl}${turn}${extra ? " — " + extra : ""}`;
+        return;
       }
+
+      if (campaign.enabled) {
+        const opp = campaignOpponent();
+        const starter = campaign.pointStarter === 0 ? "Opponent first" : "You first";
+        const beginHint = campaign.started ? "" : " (press Begin)";
+        statusEl.textContent =
+          `CAMPAIGN${beginHint} | Opponent: ${opp.name} (#${campaign.opponentIndex + 1}/8) | Score ${campaign.pScore}-${campaign.oScore} | ${starter}` +
+          `${lvl}${extra ? " — " + extra : ""}`;
+        return;
+      }
+
+      const last = (lastThrowPoints == null) ? "" : ` | Last: ${lastThrowPoints}`;
+      const inv = shot?.invalid ? ` | INVALID: ${shot.invalidReason}` : "";
+      const ch = currentCharacter ? ` | Char: ${currentCharacter.name} (${tiersTextFor(currentCharacter)})` : "";
+
+      const avg = avgScore(singleStats);
+      const best = singleStats.best ?? "-";
+      const pct = Math.round(catchPct(singleStats) * 100);
+      const w100 = singleStats.walmart100s;
+
+      statusEl.textContent =
+        `Avg: ${avg.toFixed(1)} | Best: ${best} | Catch%: ${pct}% | Walmart100s: ${w100}` +
+        `${last}${inv}${lvl}${ch}${extra ? " — " + extra : ""}`;
     }
 
     // -----------------------------
@@ -688,10 +866,7 @@
       singleShotTimer = 0;
       updateStatus("RUN OVER");
     }
-
-    function singleRunIsOver() {
-      return singleStats.attempts >= SINGLE_TURNS && singleStats.throws >= SINGLE_TURNS;
-    }
+    function singleRunIsOver() { return singleStats.attempts >= SINGLE_TURNS && singleStats.throws >= SINGLE_TURNS; }
 
     // -----------------------------
     // Input
@@ -705,7 +880,6 @@
 
       if (e.key.toLowerCase() === "r") resetGame();
       if (e.key === " " || e.code === "Space") handleAction();
-
       if (!wasDown && e.key === "ArrowUp") attemptJump();
     }, { passive: false });
 
@@ -717,48 +891,370 @@
     canvas.addEventListener("mousedown", () => handleAction());
 
     // -----------------------------
-    // Crater helper (Moon)
-    // -----------------------------
-    function drawCraters(color, count, area) {
-      ctx.fillStyle = color;
-
-      for (let i = 0; i < count; i++) {
-        const r = 6 + Math.random() * 18;
-
-        let x, y;
-
-        if (area === "floor") {
-          x = playLeft + Math.random() * (W - playLeft - 40);
-          y = floorY - Math.random() * 40;
-        } else {
-          x = wallX + Math.random() * (W - wallX - 20);
-          y = arena.wallTopY + Math.random() * (floorY - arena.wallTopY - 40);
-        }
-
-        ctx.beginPath();
-        ctx.globalAlpha = 0.35;
-        ctx.ellipse(x, y, r * 1.2, r, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-    }
-
-    // -----------------------------
     // Concrete texture helper (Berlin)
     // -----------------------------
     function drawConcreteTexture(x, y, w, h) {
       ctx.strokeStyle = "rgba(0,0,0,0.08)";
       ctx.lineWidth = 1;
-
       for (let i = 0; i < 120; i++) {
         const px = x + Math.random() * w;
         const py = y + Math.random() * h;
-
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(px + Math.random() * 6, py + Math.random() * 6);
         ctx.stroke();
       }
+    }
+
+    // -----------------------------
+    // NEW: Moon background props (STATIC earth + 4 stars)
+    // -----------------------------
+    const MOON_STARS = Object.freeze([
+      { x: playLeft + 160, y: 130, r: 3.5, a: 0.85 },
+      { x: playLeft + 520, y: 90,  r: 2.8, a: 0.80 },
+      { x: playLeft + 860, y: 160, r: 3.2, a: 0.78 },
+      { x: playLeft + 1120, y: 110, r: 2.6, a: 0.82 }
+    ]);
+
+    function drawMoonBackgroundProps() {
+      if (!arena.level || arena.level.id !== 1) return;
+
+      ctx.save();
+
+      // clip to playable AIR space only
+      ctx.beginPath();
+      ctx.rect(playLeft, 0, wallX - playLeft, floorY);
+      ctx.clip();
+
+      // Stars (4, whitish)
+      for (const s of MOON_STARS) {
+        ctx.globalAlpha = s.a;
+        ctx.fillStyle = "rgba(245, 245, 255, 1)";
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // tiny cross sparkle
+        ctx.globalAlpha = s.a * 0.6;
+        ctx.strokeStyle = "rgba(245,245,255,1)";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(s.x - s.r * 2.2, s.y);
+        ctx.lineTo(s.x + s.r * 2.2, s.y);
+        ctx.moveTo(s.x, s.y - s.r * 2.2);
+        ctx.lineTo(s.x, s.y + s.r * 2.2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      // Earth (static planet)
+      const ex = playLeft + 200;
+      const ey = 150;
+      const er = 120;
+
+      // soft glow
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "rgba(59,130,246,0.35)";
+      ctx.beginPath();
+      ctx.arc(ex, ey, er + 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // planet body gradient
+      const g = ctx.createRadialGradient(ex - er * 0.35, ey - er * 0.35, er * 0.25, ex, ey, er);
+      g.addColorStop(0, "rgba(192,132,252,1)");
+      g.addColorStop(1, "rgba(88,28,135,1)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(ex, ey, er, 0, Math.PI * 2);
+      ctx.fill();
+
+      // land blobs (simple stylized)
+      ctx.fillStyle = "rgba(192,132,252,1)";
+      ctx.beginPath();
+      ctx.ellipse(ex - 18, ey - 10, 22, 14, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(ex + 20, ey + 8, 26, 16, -0.3, 0, Math.PI * 2);
+      ctx.ellipse(ex + 8, ey - 26, 16, 10, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // clouds
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = "rgba(255,255,255,1)";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(ex, ey, er * 0.72, -0.2, 1.0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(ex, ey, er * 0.55, 1.5, 2.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // subtle rim light
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ex, ey, er, -0.9, 0.4);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // -----------------------------
+    // Berlin background props (moved OUTSIDE draw)
+    // -----------------------------
+    function drawBerlinBackgroundProps() {
+      if (!arena.level || arena.level.id !== 2) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(playLeft, 0, wallX - playLeft, floorY);
+      ctx.clip();
+
+      // CAR
+      const carX = playLeft + 170;
+      const carBaseY = floorY;
+      const carW = 340;
+      const carH = 80;
+
+      ctx.fillStyle = "rgba(17,24,39,0.30)";
+      ctx.fillRect(carX, carBaseY - carH, carW, carH);
+
+      ctx.fillStyle = "rgba(17,24,39,0.22)";
+      ctx.beginPath();
+      ctx.moveTo(carX + 70,  carBaseY - carH);
+      ctx.lineTo(carX + 120, carBaseY - carH - 50);
+      ctx.lineTo(carX + 230, carBaseY - carH - 50);
+      ctx.lineTo(carX + 280, carBaseY - carH);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(186,230,253,0.35)";
+      ctx.fillRect(carX + 135, carBaseY - carH - 45, 85, 30);
+
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      const wheelR = 20;
+      ctx.beginPath();
+      ctx.arc(carX + 85,  carBaseY - 5, wheelR, 0, Math.PI * 2);
+      ctx.arc(carX + 255, carBaseY - 5, wheelR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(carX, carBaseY - carH, carW, carH);
+
+      // STREET LAMP
+      const lampX = carX + carW + 170;
+      const lampBaseY = floorY;
+      const lampHeight = 280;
+      const lampTopY = lampBaseY - lampHeight;
+
+      ctx.strokeStyle = "rgba(17,24,39,0.35)";
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(lampX, lampTopY);
+      ctx.lineTo(lampX, lampBaseY);
+      ctx.stroke();
+
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(lampX, lampTopY + 20);
+      ctx.lineTo(lampX + 70, lampTopY + 20);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(17,24,39,0.30)";
+      ctx.fillRect(lampX + 60, lampTopY + 8, 34, 24);
+
+      ctx.fillStyle = "rgba(250,204,21,0.06)";
+      ctx.beginPath();
+      ctx.moveTo(lampX + 77, lampTopY + 32);
+      ctx.lineTo(lampX + 165, lampBaseY);
+      ctx.lineTo(lampX - 10,  lampBaseY);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+function drawSquashBackgroundProps() {
+  if (!arena.level || arena.level.id !== 3) return; // Squash = id 3
+
+  ctx.save();
+
+  // Clip to playable AIR only (prevents drawing over floor/wall blocks)
+  ctx.beginPath();
+  ctx.rect(playLeft, 0, wallX - playLeft, floorY);
+  ctx.clip();
+
+  const roofY = roofAtX(playLeft + 60); // squash roof is flat anyway
+  const cx = playLeft + (wallX - playLeft) * 0.5;
+
+  // -----------------------
+  // TWO CEILING-MOUNTED LIGHTS
+  // -----------------------
+  function drawCeilingLight(x) {
+    const mountY = roofY + 14;     // how "attached" to the roof it looks
+    const bodyW = 140;
+    const bodyH = 22;
+
+    // mount stem
+    ctx.strokeStyle = "rgba(15,23,42,0.35)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(x, roofY + 2);
+    ctx.lineTo(x, mountY);
+    ctx.stroke();
+
+    // light body
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
+    ctx.fillRect(x - bodyW/2, mountY, bodyW, bodyH);
+
+    // body outline
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x - bodyW/2, mountY, bodyW, bodyH);
+
+    // glow cone (subtle)
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(x - bodyW/2, mountY + bodyH);
+    ctx.lineTo(x + bodyW/2, mountY + bodyH);
+    ctx.lineTo(x + 240, floorY - 10);
+    ctx.lineTo(x - 240, floorY - 10);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // positions (edit these to move the lights)
+  const light1X = playLeft + (wallX - playLeft) * 0.33;
+  const light2X = playLeft + (wallX - playLeft) * 0.70;
+
+  drawCeilingLight(light1X);
+  drawCeilingLight(light2X);
+
+  // -----------------------
+  // SCOREBOARD (on back wall area)
+  // -----------------------
+  const sbW = 260;
+  const sbH = 110;
+
+  // position (edit these to move scoreboard)
+  const sbX = cx - sbW / 2;
+  const sbY = roofY + 120;
+
+  // board frame
+  ctx.fillStyle = "rgba(15,23,42,0.35)";
+  ctx.fillRect(sbX, sbY, sbW, sbH);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(sbX, sbY, sbW, sbH);
+
+  // inner screen
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(sbX + 10, sbY + 10, sbW - 20, sbH - 20);
+
+  // text
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.textAlign = "center";
+  ctx.font = "16px system-ui";
+  ctx.fillText("SQUASH", sbX + sbW/2, sbY + 32);
+
+  ctx.font = "28px system-ui";
+  ctx.fillText("0  -  0", sbX + sbW/2, sbY + 72);
+
+  ctx.font = "12px system-ui";
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.fillText("BIG BOUNCE COURT", sbX + sbW/2, sbY + 98);
+
+  ctx.textAlign = "left";
+  ctx.restore();
+}
+
+
+    // -----------------------------
+    // Townhouse props (as you had)
+    // -----------------------------
+    function drawTownhouseBackgroundProps() {
+      if (!arena.level || arena.level.id !== 0) return;
+
+      ctx.save();
+
+      ctx.beginPath();
+      ctx.rect(playLeft, 0, wallX - playLeft, floorY);
+      ctx.clip();
+
+      // WINDOW
+      const wx = playLeft + 700;
+      const wy = 450;
+      const ww = 220;
+      const wh = 170;
+
+      ctx.fillStyle = "#bae6fd";
+      ctx.fillRect(wx, wy, ww, wh);
+
+      ctx.strokeStyle = "rgba(15,23,42,0.35)";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(wx, wy, ww, wh);
+
+      ctx.strokeStyle = "rgba(15,23,42,0.25)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(wx + ww / 2, wy);
+      ctx.lineTo(wx + ww / 2, wy + wh);
+      ctx.moveTo(wx, wy + wh / 2);
+      ctx.lineTo(wx + ww, wy + wh / 2);
+      ctx.stroke();
+
+      // LAMP
+      const lx = playLeft + 150;
+      const lampBaseY = floorY;
+      const lampHeight = 240;
+      const ly = lampBaseY - lampHeight;
+
+      ctx.strokeStyle = "rgba(15,23,42,0.35)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(lx, ly + 40);
+      ctx.lineTo(lx, lampBaseY);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.beginPath();
+      ctx.moveTo(lx - 55, ly + 40);
+      ctx.lineTo(lx + 55, ly + 40);
+      ctx.lineTo(lx + 35, ly - 25);
+      ctx.lineTo(lx - 35, ly - 25);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(15,23,42,0.25)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // GREEN COUCH
+      const cx = playLeft + 250;
+      const cy = floorY - 90;
+      const cw = 380;
+      const ch = 95;
+
+      ctx.fillStyle = "#16a34a";
+      ctx.fillRect(cx, cy, cw, ch);
+
+      ctx.fillStyle = "#15803d";
+      ctx.fillRect(cx, cy - 70, cw, 75);
+
+      ctx.fillStyle = "#166534";
+      ctx.fillRect(cx - 28, cy - 50, 35, ch + 50);
+      ctx.fillRect(cx + cw - 7, cy - 50, 35, ch + 50);
+
+      ctx.strokeStyle = "rgba(15,23,42,0.35)";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(cx, cy - 70, cw, ch + 70);
+      ctx.strokeRect(cx - 28, cy - 50, 35, ch + 50);
+      ctx.strokeRect(cx + cw - 7, cy - 50, 35, ch + 50);
+
+      ctx.restore();
     }
 
     // -----------------------------
@@ -810,8 +1306,12 @@
       match.firstPlayerScoredZeroThisRound = false;
 
       match.players[0].roundsWon = 0; match.players[1].roundsWon = 0;
-
       if (match.enabled) match.started = false;
+
+      if (campaign.enabled) {
+        campaign.started = false;
+        resetCampaignMatch(true);
+      }
 
       player.x = playLeft + 20;
       player.y = groundY();
@@ -824,7 +1324,10 @@
 
       startNewShot();
       refreshBeginButton();
-      updateStatus(match.enabled ? "2P reset. Pick a level, assign chars, Begin Game." : "Reset. Select a level.");
+
+      if (match.enabled) updateStatus("2P reset. Pick a level, assign chars, Begin Game.");
+      else if (campaign.enabled) updateStatus(`Campaign reset. Opponent: ${campaignOpponent().name}. Pick level + character, Begin.`);
+      else updateStatus("Reset. Select a level.");
     }
 
     // -----------------------------
@@ -841,7 +1344,9 @@
     // -----------------------------
     function startFromTitle() {
       state = State.SELECT_LEVEL;
-      updateStatus(match.enabled ? "Pick a level, assign chars, then Begin Game." : "Pick a level to begin.");
+      updateStatus(match.enabled ? "Pick a level, assign chars, then Begin Game."
+                 : campaign.enabled ? "Campaign: pick a level + character, then Begin."
+                 : "Pick a level to begin.");
       refreshBeginButton();
     }
 
@@ -853,13 +1358,15 @@
       if (!arena.level) return;
 
       if (state === State.SINGLE_OVER) return;
+      if (state === State.CAMPAIGN_OVER) return;
 
-      if (!match.enabled && singleStats.attempts >= SINGLE_TURNS) {
+      if (!match.enabled && !campaign.enabled && singleStats.attempts >= SINGLE_TURNS) {
         endSingleRun();
         return;
       }
 
       if (match.enabled && !match.started) return;
+      if (campaign.enabled && !campaign.started) return;
 
       if (state === State.POWER_METER) {
         meter.lockedPower = meter.value;
@@ -877,7 +1384,6 @@
         const maxDeg = -60;
         const deg = minDeg + (maxDeg - minDeg) * meter.value;
         meter.lockedAngleRad = (deg * Math.PI) / 180;
-
         launchBall();
         return;
       }
@@ -896,23 +1402,21 @@
       ball.active = true;
 
       if (match.enabled) match.players[match.activeIndex].attempts++;
-      else singleStats.attempts++;
+      else if (!campaign.enabled) singleStats.attempts++;
 
-      if (!match.enabled) singleShotTimer = SINGLE_SHOT_TIMEOUT_S;
+      if (!match.enabled && !campaign.enabled) singleShotTimer = SINGLE_SHOT_TIMEOUT_S;
 
       const vxRaw = Math.cos(a) * speed;
       ball.vx = Math.max(160, vxRaw);
       ball.vy = -Math.sin(a) * speed;
 
-      // spin init
       ball.spin = 0;
-      ball.spinV = (ball.vx >= 0 ? 1 : -1) * (6 + 10 * (meter.lockedPower ?? 0.5)); // rad/s
+      ball.spinV = (ball.vx >= 0 ? 1 : -1) * (6 + 10 * (meter.lockedPower ?? 0.5));
 
       shot = newShotContext();
       state = State.FLIGHT;
       updateStatus("Ball in flight.");
     }
-
 
     // -----------------------------
     // Update loops
@@ -958,9 +1462,8 @@
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
 
-      // spin update
       ball.spin += ball.spinV * dt;
-      ball.spinV *= 0.995; // tiny decay
+      ball.spinV *= 0.995;
 
       ball.vx *= arena.airDrag;
       ball.vy *= arena.airDrag;
@@ -1130,10 +1633,10 @@
     }
 
     // -----------------------------
-    // Failsafe timeout
+    // Failsafe timeout (single freeplay only)
     // -----------------------------
     function forceSingleTimeout() {
-      if (match.enabled) return;
+      if (match.enabled || campaign.enabled) return;
       if (!ball.active) return;
       if (state !== State.FLIGHT && state !== State.RETURNING) return;
       if (state === State.SINGLE_OVER) return;
@@ -1165,7 +1668,7 @@
         ball.active = false;
 
         if (match.enabled) match.players[match.activeIndex].catches++;
-        else singleStats.catches++;
+        else if (!campaign.enabled) singleStats.catches++;
 
         if (pts === 100) {
           showPopup("Walmart 100!", { size: 84, color: "#3b82f6" });
@@ -1175,6 +1678,9 @@
 
         if (match.enabled) {
           endTurnWithPoints(pts);
+        } else if (campaign.enabled) {
+          lastThrowPoints = pts;
+          resolveCampaignPoint(pts);
         } else {
           singleStats.throws++;
           singleStats.sum += pts;
@@ -1200,6 +1706,9 @@
 
         if (match.enabled) {
           endTurnWithPoints(0);
+        } else if (campaign.enabled) {
+          lastThrowPoints = 0;
+          resolveCampaignPoint(0);
         } else {
           const pts = 0;
           singleStats.throws++;
@@ -1221,17 +1730,17 @@
 
     function update(dt) {
       if (state === State.TITLE) { updatePopup(dt); return; }
-
       updatePopup(dt);
 
-      // decay screen shake
-      if (screenShake > 0) {
-        screenShake = Math.max(0, screenShake - dt);
+      if (screenShake > 0) screenShake = Math.max(0, screenShake - dt);
+
+      const canPlay =
+        (!match.enabled || match.started) &&
+        (!campaign.enabled || campaign.started);
+
+      if (arena.level && state !== State.MATCH_OVER && state !== State.SINGLE_OVER && state !== State.CAMPAIGN_OVER && canPlay) {
+        updatePlayer(dt);
       }
-
-      const canPlay = !match.enabled || match.started;
-
-      if (arena.level && state !== State.MATCH_OVER && state !== State.SINGLE_OVER && canPlay) updatePlayer(dt);
 
       if (state === State.POWER_METER) {
         resetBallToHand();
@@ -1241,16 +1750,14 @@
         meterStep(dt, effectiveAngleSpeed());
       } else if (state === State.FLIGHT) {
         updateBall(dt);
-
-        if (!match.enabled && ball.active) {
+        if (!match.enabled && !campaign.enabled && ball.active) {
           singleShotTimer -= dt;
           if (singleShotTimer <= 0) forceSingleTimeout();
         }
       } else if (state === State.RETURNING) {
         updateBall(dt);
         resolveCatchOrMiss();
-
-        if (!match.enabled && ball.active) {
+        if (!match.enabled && !campaign.enabled && ball.active) {
           singleShotTimer -= dt;
           if (singleShotTimer <= 0) forceSingleTimeout();
         }
@@ -1281,10 +1788,9 @@
 
       const mx = x + meter.value * barW;
 
-      // glow marker
       ctx.save();
-      ctx.shadowColor = "#rgba(239,68,68,0.15)";
-      ctx.shadowBlur = .5;
+      ctx.shadowColor = "rgba(239,68,68,0.08)";
+      ctx.shadowBlur = 0.5;
 
       ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 5;
@@ -1292,7 +1798,6 @@
       ctx.moveTo(mx, barY - 8);
       ctx.lineTo(mx, barY + barH + 8);
       ctx.stroke();
-
       ctx.restore();
 
       ctx.fillStyle = arena.theme.ui;
@@ -1328,10 +1833,9 @@
 
       const my = y + (1 - meter.value) * barH;
 
-      // glow marker
       ctx.save();
-      ctx.shadowColor = "#ef4444";
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = "rgba(239,68,68,0.14)";
+      ctx.shadowBlur = 2;
 
       ctx.strokeStyle = "#ef4444";
       ctx.lineWidth = 5;
@@ -1339,7 +1843,6 @@
       ctx.moveTo(x - 8, my);
       ctx.lineTo(x + barW + 8, my);
       ctx.stroke();
-
       ctx.restore();
 
       ctx.fillStyle = arena.theme.ui;
@@ -1384,7 +1887,6 @@
     }
 
     function drawCharacter(x, y, w, h, outfit) {
-      // Soft shadow (character depth)
       ctx.save();
       ctx.shadowColor = "rgba(0,0,0,0.25)";
       ctx.shadowBlur = 12;
@@ -1469,92 +1971,140 @@
       ctx.textAlign = "left";
 
       ctx.font = "18px system-ui";
-      ctx.fillText(match.enabled ? "2P HOTSEAT" : "SINGLE", 14, 28);
+      ctx.fillText(match.enabled ? "2P HOTSEAT" : (campaign.enabled ? "CAMPAIGN" : "SINGLE"), 14, 28);
 
       ctx.font = "14px system-ui";
+
+      if (campaign.enabled) {
+        const opp = campaignOpponent();
+        ctx.fillText(`Opponent: ${opp.name}`, 14, 52);
+        ctx.fillText(`Stage: ${campaign.opponentIndex + 1}/8`, 14, 72);
+        ctx.fillText(`Score: ${campaign.pScore}-${campaign.oScore}`, 14, 92);
+
+        const starter = campaign.pointStarter === 0 ? "Opp first" : "You first";
+        ctx.fillText(`Next: ${starter}`, 14, 112);
+
+        ctx.fillText(`You: ${currentCharacter?.name ?? "-"}`, 14, 136);
+
+        const oppChar = CHARACTERS[campaign.oppCharId ?? 0];
+        if (oppChar) ctx.fillText(`Vs: ${oppChar.name} (${tiersTextFor(oppChar)})`, 14, 156);
+
+        if (!campaign.started && state !== State.CAMPAIGN_OVER) {
+          ctx.fillStyle = "rgba(255,255,255,0.85)";
+          ctx.fillText("Press Begin to start", 14, 182);
+        }
+
+        if (state === State.CAMPAIGN_OVER) {
+          ctx.fillStyle = "rgba(15,23,42,0.85)";
+          ctx.fillRect(8, H - 160, PANEL_W - 16, 140);
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.font = "18px system-ui";
+
+          if (campaign.lastResult === "COMPLETE") {
+            ctx.fillText("CAMPAIGN COMPLETE!", PANEL_W / 2, H - 120);
+            ctx.font = "14px system-ui";
+            ctx.fillText("You beat Ethan.", PANEL_W / 2, H - 92);
+            ctx.fillText("Press R to restart", PANEL_W / 2, H - 62);
+          } else if (campaign.lastResult === "WIN") {
+            ctx.fillText("YOU WIN!", PANEL_W / 2, H - 120);
+            ctx.font = "14px system-ui";
+            ctx.fillText(`Next: ${campaignOpponent().name}`, PANEL_W / 2, H - 92);
+            ctx.fillText("Press Begin to play", PANEL_W / 2, H - 62);
+          } else {
+            ctx.fillText("YOU LOSE", PANEL_W / 2, H - 120);
+            ctx.font = "14px system-ui";
+            ctx.fillText(`Replay: ${campaignOpponent().name}`, PANEL_W / 2, H - 92);
+            ctx.fillText("Press Begin to retry", PANEL_W / 2, H - 62);
+          }
+          ctx.textAlign = "left";
+        }
+
+        return;
+      }
+
       if (match.enabled) {
         ctx.fillText(`Round: ${match.roundNum}`, 14, 52);
         ctx.fillText(`First to: ${match.roundsToWin}`, 14, 72);
         ctx.fillText(match.started ? `Turn: P${match.activeIndex + 1}` : `Setup: click P1/P2`, 14, 92);
-      } else {
-        const avg = avgScore(singleStats);
-        const best = singleStats.best ?? "-";
-        const pct = Math.round(catchPct(singleStats) * 100);
 
-        ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, 52);
-        ctx.fillText(`Best: ${best}`, 14, 72);
-        ctx.fillText(`Catch%: ${pct}%`, 14, 92);
-        ctx.fillText(`Walmart100s: ${singleStats.walmart100s}`, 14, 112);
-        ctx.fillText(currentCharacter ? `Char: ${currentCharacter.name}` : "", 14, 132);
-      }
+        const blockY = 130;
+        const blockH = 270;
 
-      const blockY = 130;
-      const blockH = 270;
+        function drawPlayerBlock(i, y) {
+          const p = match.players[i];
+          const ch = (p.characterId != null) ? CHARACTERS[p.characterId] : null;
 
-      function drawPlayerBlock(i, y) {
-        const p = match.players[i];
-        const ch = (p.characterId != null) ? CHARACTERS[p.characterId] : null;
+          const isActive = match.started && match.activeIndex === i && state !== State.MATCH_OVER;
+          const isSetupSel = !match.started && match.setupPickIndex === i;
 
-        const isActive = match.enabled && match.started && match.activeIndex === i && state !== State.MATCH_OVER;
-        const isSetupSel = match.enabled && !match.started && match.setupPickIndex === i;
+          if (isActive) {
+            ctx.fillStyle = "rgba(34, 197, 94, 0.16)";
+            ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
+          } else if (isSetupSel) {
+            ctx.fillStyle = "rgba(250, 204, 21, 0.14)";
+            ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
+          }
 
-        if (isActive) {
-          ctx.fillStyle = "rgba(34, 197, 94, 0.16)";
-          ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
-        } else if (isSetupSel) {
-          ctx.fillStyle = "rgba(250, 204, 21, 0.14)";
-          ctx.fillRect(10, y - 22, PANEL_W - 20, blockH);
+          ctx.fillStyle = "#e5e7eb";
+          ctx.font = "16px system-ui";
+          ctx.fillText(`${p.name}`, 14, y);
+
+          ctx.font = "13px system-ui";
+          if (ch) ctx.fillText(`Char: ${ch.name} (${tiersTextFor(ch)})`, 14, y + 22);
+          else ctx.fillText(`Char: (pick one)`, 14, y + 22);
+
+          ctx.font = "54px system-ui";
+          ctx.fillText(`${p.roundsWon}`, 14, y + 82);
+          ctx.font = "13px system-ui";
+          ctx.fillText("ROUNDS", 14, y + 102);
+
+          const avg = p.throws > 0 ? (p.sum / p.throws) : 0;
+          const pct = p.attempts > 0 ? Math.round((p.catches / p.attempts) * 100) : 0;
+          const best = (p.best == null) ? "-" : p.best;
+
+          ctx.font = "14px system-ui";
+          ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, y + 132);
+          ctx.fillText(`Catch%: ${pct}%`, 14, y + 154);
+          ctx.fillText(`Best: ${best}`, 14, y + 176);
+          ctx.fillText(`Walmart100s: ${p.walmart100s}`, 14, y + 198);
+          ctx.fillText(`Layups: ${p.layups}`, 14, y + 220);
+
+          const s = match.roundShots[i];
+          ctx.fillText(`This round: ${s == null ? "…" : s}`, 14, y + 242);
+          ctx.fillText(`Last: ${p.lastThrow ?? "-"}`, 14, y + 264);
         }
 
-        ctx.fillStyle = "#e5e7eb";
-        ctx.font = "16px system-ui";
-        ctx.fillText(`${p.name}`, 14, y);
-
-        ctx.font = "13px system-ui";
-        if (ch) ctx.fillText(`Char: ${ch.name} (${tiersTextFor(ch)})`, 14, y + 22);
-        else ctx.fillText(`Char: (pick one)`, 14, y + 22);
-
-        ctx.font = "54px system-ui";
-        ctx.fillText(`${p.roundsWon}`, 14, y + 82);
-        ctx.font = "13px system-ui";
-        ctx.fillText("ROUNDS", 14, y + 102);
-
-        const avg = p.throws > 0 ? (p.sum / p.throws) : 0;
-        const pct = p.attempts > 0 ? Math.round((p.catches / p.attempts) * 100) : 0;
-        const best = (p.best == null) ? "-" : p.best;
-
-        ctx.font = "14px system-ui";
-        ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, y + 132);
-        ctx.fillText(`Catch%: ${pct}%`, 14, y + 154);
-        ctx.fillText(`Best: ${best}`, 14, y + 176);
-        ctx.fillText(`Walmart100s: ${p.walmart100s}`, 14, y + 198);
-        ctx.fillText(`Layups: ${p.layups}`, 14, y + 220);
-
-        const s = match.roundShots[i];
-        ctx.fillText(`This round: ${s == null ? "…" : s}`, 14, y + 242);
-        ctx.fillText(`Last: ${p.lastThrow ?? "-"}`, 14, y + 264);
-      }
-
-      if (match.enabled) {
         drawPlayerBlock(0, blockY);
         drawPlayerBlock(1, blockY + 300);
+
+        if (state === State.MATCH_OVER && match.winnerIndex != null) {
+          ctx.fillStyle = "rgba(15,23,42,0.85)";
+          ctx.fillRect(8, H - 150, PANEL_W - 16, 130);
+
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.font = "18px system-ui";
+          ctx.fillText(`WINNER: ${match.players[match.winnerIndex].name}`, PANEL_W / 2, H - 112);
+
+          ctx.font = "14px system-ui";
+          ctx.fillText(`Final: ${match.players[0].roundsWon}–${match.players[1].roundsWon}`, PANEL_W / 2, H - 86);
+          ctx.fillText("Press R to reset", PANEL_W / 2, H - 56);
+          ctx.textAlign = "left";
+        }
+
+        return;
       }
 
-      if (match.enabled && state === State.MATCH_OVER && match.winnerIndex != null) {
-        ctx.fillStyle = "rgba(15,23,42,0.85)";
-        ctx.fillRect(8, H - 150, PANEL_W - 16, 130);
+      const avg = avgScore(singleStats);
+      const best = singleStats.best ?? "-";
+      const pct = Math.round(catchPct(singleStats) * 100);
 
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.font = "18px system-ui";
-        ctx.fillText(`WINNER: ${match.players[match.winnerIndex].name}`, PANEL_W / 2, H - 112);
-
-        ctx.font = "14px system-ui";
-        ctx.fillText(`Final: ${match.players[0].roundsWon}–${match.players[1].roundsWon}`, PANEL_W / 2, H - 86);
-        ctx.fillText("Press R to reset", PANEL_W / 2, H - 56);
-      }
-
-      ctx.textAlign = "left";
+      ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, 52);
+      ctx.fillText(`Best: ${best}`, 14, 72);
+      ctx.fillText(`Catch%: ${pct}%`, 14, 92);
+      ctx.fillText(`Walmart100s: ${singleStats.walmart100s}`, 14, 112);
+      ctx.fillText(currentCharacter ? `Char: ${currentCharacter.name}` : "", 14, 132);
     }
 
     function drawTitleScreen() {
@@ -1576,6 +2126,7 @@
       ctx.font = "16px Trebuchet MS, system-ui";
       ctx.fillStyle = "rgba(255,255,255,0.9)";
       ctx.fillText("Hotseat: pick level + characters (P1/P2), then Begin Game.", W/2, H/2 + 64);
+      ctx.fillText("Campaign: pick level + your character, then Begin Campaign Match.", W/2, H/2 + 92);
 
       ctx.textAlign = "left";
     }
@@ -1619,10 +2170,55 @@
       ctx.textAlign = "left";
     }
 
+    function drawCampaignOverOverlay() {
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(playLeft, 0, W - playLeft, H);
+
+      const cardW = 820;
+      const cardH = 320;
+      const cx = playLeft + (W - playLeft) / 2;
+      const cy = H / 2;
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+      ctx.fillRect(cx - cardW/2, cy - cardH/2, cardW, cardH);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+
+      const oppName = campaignOpponent().name;
+
+      if (campaign.lastResult === "COMPLETE") {
+        ctx.font = "900 56px Trebuchet MS, system-ui";
+        ctx.fillText("CAMPAIGN COMPLETE", cx, cy - 70);
+        ctx.font = "700 22px Trebuchet MS, system-ui";
+        ctx.fillText("You beat Ethan.", cx, cy - 22);
+        ctx.font = "18px Trebuchet MS, system-ui";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fillText("Press R to restart the campaign", cx, cy + 66);
+      } else if (campaign.lastResult === "WIN") {
+        ctx.font = "900 56px Trebuchet MS, system-ui";
+        ctx.fillText("YOU WIN", cx, cy - 70);
+        ctx.font = "700 22px Trebuchet MS, system-ui";
+        ctx.fillText(`Next opponent: ${oppName}`, cx, cy - 22);
+        ctx.font = "18px Trebuchet MS, system-ui";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fillText("Press Begin to play the next match", cx, cy + 66);
+      } else {
+        ctx.font = "900 56px Trebuchet MS, system-ui";
+        ctx.fillText("YOU LOSE", cx, cy - 70);
+        ctx.font = "700 22px Trebuchet MS, system-ui";
+        ctx.fillText(`Replay opponent: ${oppName}`, cx, cy - 22);
+        ctx.font = "18px Trebuchet MS, system-ui";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.fillText("Press Begin to retry", cx, cy + 66);
+      }
+
+      ctx.textAlign = "left";
+    }
+
     function draw() {
       ctx.clearRect(0, 0, W, H);
 
-      // apply screen shake to whole scene
       ctx.save();
       if (screenShake > 0) {
         const dx = (Math.random() - 0.5) * 2 * screenShakeMag;
@@ -1632,34 +2228,40 @@
 
       drawSidePanel();
 
-      // Background (subtle vertical gradient)
+      // Background
       const bgTop = arena.theme?.bg ?? "#f8fafc";
-      const bgBottom = "rgba(255,255,255,0.85)";
-      const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, bgTop);
-      grad.addColorStop(1, bgBottom);
-      ctx.fillStyle = grad;
+
+      if (arena.level?.id === 3) {
+        ctx.fillStyle = bgTop;
+      } else {
+        const bgBottom = "rgba(0,0,0,0.06)";
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, bgTop);
+        grad.addColorStop(1, bgBottom);
+        ctx.fillStyle = grad;
+      }
+
       ctx.fillRect(playLeft, 0, W - playLeft, H);
+
+      // Background props (BEHIND everything)
+      drawMoonBackgroundProps();       // ✅ NEW (Moon: earth + stars)
+      drawBerlinBackgroundProps();
+      drawTownhouseBackgroundProps();
+      drawSquashBackgroundProps();
+
 
       drawRoof();
 
       // FLOOR
       ctx.fillStyle = arena.theme?.floor;
       ctx.fillRect(playLeft, floorY, W - playLeft, H - floorY);
-
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 3;
       ctx.strokeRect(playLeft, floorY, W - playLeft, H - floorY);
 
-      if (arena.level?.id === 1) {
-        drawCraters("rgba(255,255,255,0.25)", 22, "floor");
-        drawCraters("rgba(255,255,255,0.25)", 14, "wall");
-      }
-
       // WALL
       ctx.fillStyle = arena.theme?.wall;
       ctx.fillRect(wallX, arena.wallTopY, W - wallX, floorY - arena.wallTopY);
-
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 3;
       ctx.strokeRect(wallX, arena.wallTopY, W - wallX, floorY - arena.wallTopY);
@@ -1685,7 +2287,6 @@
       ctx.shadowBlur = 8;
       ctx.shadowOffsetY = 4;
 
-      // Glow when shot has points pending (i.e., valid wall hit)
       if (ball.active && (shot?.pendingPoints ?? 0) > 0 && !shot.invalid) {
         ctx.shadowColor = "rgba(59,130,246,0.6)";
         ctx.shadowBlur = 20;
@@ -1702,7 +2303,6 @@
       ctx.fill();
       ctx.stroke();
 
-      // seam line to show rotation
       ctx.strokeStyle = "rgba(255,255,255,0.65)";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1722,11 +2322,16 @@
 
       if (state === State.SELECT_LEVEL) {
         ctx.fillStyle = "rgba(15, 23, 42, 0.10)";
-        ctx.fillRect(W/2 - 320, H/2 - 70, 640, 140);
+        ctx.fillRect(W/2 - 360, H/2 - 70, 720, 140);
         ctx.fillStyle = arena.theme.ui;
         ctx.textAlign = "center";
         ctx.font = "22px system-ui";
-        ctx.fillText(match.enabled ? "Pick a Level, Assign P1/P2, then Begin Game" : "Select a Level Above to Start", W/2, H/2 - 10);
+        const msg = match.enabled
+          ? "Pick a Level, Assign P1/P2, then Begin Game"
+          : campaign.enabled
+            ? "Campaign: Pick a Level + Your Character, then Begin"
+            : "Select a Level Above to Start";
+        ctx.fillText(msg, W/2, H/2 - 10);
         ctx.font = "14px system-ui";
         ctx.fillText("Townhouse = angled roof | Moon = low gravity | Berlin Wall = no roof + tall wall", W/2, H/2 + 20);
         ctx.textAlign = "left";
@@ -1756,9 +2361,9 @@
       drawPopup();
 
       if (state === State.SINGLE_OVER) drawSingleOverOverlay();
+      if (state === State.CAMPAIGN_OVER) drawCampaignOverOverlay();
       if (state === State.TITLE) drawTitleScreen();
 
-      // end screen shake wrap
       ctx.restore();
     }
 
@@ -1780,10 +2385,11 @@
     function initButtons() {
       document.getElementById("modeSingle").classList.toggle("active", true);
       document.getElementById("modeMulti").classList.toggle("active", false);
+      document.getElementById("modeCampaign").classList.toggle("active", false);
     }
 
     initButtons();
-    setMode(false);
+    setMode(Mode.SINGLE);
     updateCharacterButtons();
     resetGame();
     state = State.TITLE;
