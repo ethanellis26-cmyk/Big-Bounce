@@ -376,7 +376,9 @@
       moodRemaining: 0,
 
       lastResult: null,
-      justAdvanced: false
+      justAdvanced: false,
+      lastPlayerScore: null,
+      lastOpponentScore: null
     };
 
     function charIdByName(name) {
@@ -402,6 +404,8 @@
 
       campaign.lastResult = null;
       campaign.justAdvanced = false;
+      campaign.lastPlayerScore = null;
+      campaign.lastOpponentScore = null;
 
       const opp = campaignOpponent();
       campaign.oppCharId = charIdByName(opp.name);
@@ -466,6 +470,9 @@
       if (campaign.pointStarter === 0) {
         campaign.ghostScore = generateGhostScore();
         showPopup(`${campaignOpponent().name}: ${campaign.ghostScore}`, { size: 58, color: "#ffffff" });
+        if (campaign.ghostScore === 0) {
+          showPopup("Layup Opportunity", { size: 64, color: "#ffffff" });
+        }
         startNewShot();
         state = State.POWER_METER;
         updateStatus("Opponent scored — your turn. Lock POWER.");
@@ -484,6 +491,12 @@
       }
 
       const g = campaign.ghostScore ?? 0;
+      campaign.lastPlayerScore = playerPts;
+      campaign.lastOpponentScore = g;
+
+      if (campaign.pointStarter === 0 && g === 0 && playerPts > 0) {
+        showPopup("Layup", { size: 74, color: "#ffffff" });
+      }
 
       if (playerPts === g) {
         showPopup("TIE — Replay", { size: 60, color: "#ffffff" });
@@ -515,6 +528,7 @@
           campaign.started = false;
           state = State.CAMPAIGN_OVER;
           updateStatus("Campaign complete!");
+          refreshBeginButton();
           return;
         }
 
@@ -526,6 +540,7 @@
 
         state = State.CAMPAIGN_OVER;
         updateStatus("You won! Advance to next opponent.");
+        refreshBeginButton();
         return;
       }
 
@@ -537,6 +552,7 @@
 
       state = State.CAMPAIGN_OVER;
       updateStatus("You lost. Replay this opponent.");
+      refreshBeginButton();
       return;
     }
 
@@ -662,6 +678,7 @@
     function applyLevel(levelIndex) {
       if (match.enabled && match.started) return;
       if (campaign.enabled && campaign.started) return;
+      if (campaign.enabled && state === State.CAMPAIGN_OVER) return;
 
       const L = LEVELS[levelIndex];
       arena.level = L;
@@ -718,7 +735,10 @@
       }
 
       if (campaign.enabled) {
-        return okLevel && !campaign.started && state !== State.CAMPAIGN_OVER;
+        if (state === State.CAMPAIGN_OVER) {
+          return okLevel;
+        }
+        return okLevel && !campaign.started;
       }
 
       return false;
@@ -2257,10 +2277,14 @@
         const starter = campaign.pointStarter === 0 ? "Opp first" : "You first";
         ctx.fillText(`Next: ${starter}`, 14, 112);
 
-        ctx.fillText(`You: ${currentCharacter?.name ?? "-"}`, 14, 136);
+        const playerLast = campaign.lastPlayerScore ?? "-";
+        const oppLast = campaign.lastOpponentScore ?? "-";
+        ctx.fillText(`Last: You ${playerLast} | Opp ${oppLast}`, 14, 132);
+
+        ctx.fillText(`You: ${currentCharacter?.name ?? "-"}`, 14, 156);
 
         const oppChar = CHARACTERS[campaign.oppCharId ?? 0];
-        if (oppChar) ctx.fillText(`Vs: ${oppChar.name} (${tiersTextFor(oppChar)})`, 14, 156);
+        if (oppChar) ctx.fillText(`Vs: ${oppChar.name} (${tiersTextFor(oppChar)})`, 14, 176);
 
         if (!campaign.started && state !== State.CAMPAIGN_OVER) {
           ctx.fillStyle = "rgba(255,255,255,0.85)";
@@ -2372,12 +2396,14 @@
       const avg = avgScore(singleStats);
       const best = singleStats.best ?? "-";
       const pct = Math.round(catchPct(singleStats) * 100);
+      const last = lastThrowPoints ?? "-";
 
       ctx.fillText(`Avg: ${avg.toFixed(1)}`, 14, 52);
       ctx.fillText(`Best: ${best}`, 14, 72);
       ctx.fillText(`Catch%: ${pct}%`, 14, 92);
       ctx.fillText(`Walmart100s: ${singleStats.walmart100s}`, 14, 112);
-      ctx.fillText(currentCharacter ? `Char: ${currentCharacter.name}` : "", 14, 132);
+      ctx.fillText(`Last: ${last}`, 14, 132);
+      ctx.fillText(currentCharacter ? `Char: ${currentCharacter.name}` : "", 14, 152);
     }
 
     function drawTitleScreen() {
