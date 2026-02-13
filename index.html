@@ -25,6 +25,9 @@
     }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
 
+    /* Drawer handle - hidden on desktop */
+    #drawer-handle { display: none; }
+
     /* Mobile touch controls */
     #touch-controls {
       display: none;
@@ -69,46 +72,98 @@
     @media (pointer: coarse), (max-width: 900px) {
       #touch-controls { display: block; }
       .hud { padding: 6px 8px; font-size: 12px; }
-      .hud > div:first-child { font-size: 11px; }
+      .hud > div:first-child, #menu-drawer > div:first-child { font-size: 11px; }
       .hint { font-size: 11px; margin-top: 3px; }
       .row { gap: 4px; margin-top: 5px; }
       .row button { padding: 5px 7px; font-size: 11px; border-radius: 6px; }
       body { overflow: hidden; }
-      canvas { max-height: calc(100vh - 220px); max-height: calc(100dvh - 220px); }
+
+      /* Drawer handle */
+      #drawer-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px 0 2px;
+        cursor: pointer;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+      }
+      #drawer-handle-icon {
+        font-size: 12px;
+        transition: transform 0.3s ease;
+        display: inline-block;
+      }
+      #drawer-handle-text {
+        font-size: 11px;
+        font-weight: 600;
+        opacity: 0.7;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+      }
+      .drawer-collapsed #drawer-handle-icon {
+        transform: rotate(180deg);
+      }
+
+      /* Collapsible drawer */
+      #menu-drawer {
+        overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.25s ease;
+        max-height: 300px;
+        opacity: 1;
+      }
+      #menu-drawer.collapsed {
+        max-height: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #drawer-status-bar {
+        padding-bottom: 2px;
+      }
     }
   </style>
 </head>
 <body>
   <div class="hud">
-    <div><b>Big Bounce</b> — Tap/Space to lock <b>Power</b>, then <b>Angle</b>. Move ← → to catch. Jump ↑</div>
-    <div class="hint">Rules: bounce → wall-face (before roof) → catch. Roof-before-wall = 0. R = reset. Use on-screen buttons on mobile.</div>
-
-    <div class="row">
-      <button id="modeSingle">Single Player</button>
-      <button id="modeMulti">Two Player</button>
-      <button id="modeCampaign">Campaign</button>
-      <button id="btnBegin" disabled>Begin</button>
+    <div id="drawer-status-bar">
+      <div id="status"></div>
+      <div id="drawer-handle" aria-label="Toggle menu">
+        <span id="drawer-handle-icon">&#9660;</span>
+        <span id="drawer-handle-text">Menu</span>
+      </div>
     </div>
 
-    <div class="row">
-      <button id="btn0">Map 1: Townhouse</button>
-      <button id="btn1">Map 2: Moon</button>
-      <button id="btn2">Map 3: Berlin Wall</button>
-      <button id="btn3">Map 4: Squash</button>
-    </div>
+    <div id="menu-drawer">
+      <div><b>Big Bounce</b> — Tap/Space to lock <b>Power</b>, then <b>Angle</b>. Move ← → to catch. Jump ↑</div>
+      <div class="hint">Rules: bounce → wall-face (before roof) → catch. Roof-before-wall = 0. R = reset. Use on-screen buttons on mobile.</div>
 
-    <div class="row">
-      <button id="ch0">Brenden</button>
-      <button id="ch1">Ethan</button>
-      <button id="ch2">Xavier</button>
-      <button id="ch3">Edward</button>
-      <button id="ch4">Liam</button>
-      <button id="ch5">Jake</button>
-      <button id="ch6">Hans</button>
-      <button id="ch7">Alex</button>
-    </div>
+      <div class="row">
+        <button id="modeSingle">Single Player</button>
+        <button id="modeMulti">Two Player</button>
+        <button id="modeCampaign">Campaign</button>
+        <button id="btnBegin" disabled>Begin</button>
+      </div>
 
-    <div id="status" style="margin-top:10px;"></div>
+      <div class="row">
+        <button id="btn0">Map 1: Townhouse</button>
+        <button id="btn1">Map 2: Moon</button>
+        <button id="btn2">Map 3: Berlin Wall</button>
+        <button id="btn3">Map 4: Squash</button>
+      </div>
+
+      <div class="row">
+        <button id="ch0">Brenden</button>
+        <button id="ch1">Ethan</button>
+        <button id="ch2">Xavier</button>
+        <button id="ch3">Edward</button>
+        <button id="ch4">Liam</button>
+        <button id="ch5">Jake</button>
+        <button id="ch6">Hans</button>
+        <button id="ch7">Alex</button>
+      </div>
+    </div>
   </div>
 
   <canvas id="c" width="1400" height="900"></canvas>
@@ -645,6 +700,7 @@
       state = State.POWER_METER;
       updateStatus(`Selected: ${L.name}. Lock POWER.`);
       refreshBeginButton();
+      if (isDrawerMobile()) setDrawerOpen(false);
     }
 
     document.getElementById("btn0").onclick = () => applyLevel(0);
@@ -680,8 +736,8 @@
     }
 
     function beginGame() {
-      if (match.enabled) return beginHotseat();
-      if (campaign.enabled) return beginCampaignMatch();
+      if (match.enabled) { beginHotseat(); if (isDrawerMobile()) setDrawerOpen(false); return; }
+      if (campaign.enabled) { beginCampaignMatch(); if (isDrawerMobile()) setDrawerOpen(false); return; }
     }
     beginBtn.onclick = beginGame;
 
@@ -996,6 +1052,87 @@
       () => { resetGame(); },
       null
     );
+
+    // -----------------------------
+    // Mobile Menu Drawer
+    // -----------------------------
+    const menuDrawer = document.getElementById("menu-drawer");
+    const drawerHandle = document.getElementById("drawer-handle");
+    const drawerHandleIcon = document.getElementById("drawer-handle-icon");
+    const drawerStatusBar = document.getElementById("drawer-status-bar");
+    let drawerOpen = true;
+
+    function isDrawerMobile() {
+      const tc = document.getElementById("touch-controls");
+      return tc && window.getComputedStyle(tc).display !== "none";
+    }
+
+    function setDrawerOpen(open) {
+      if (!menuDrawer) return;
+      drawerOpen = open;
+      if (open) {
+        menuDrawer.classList.remove("collapsed");
+        drawerHandleIcon.innerHTML = "&#9660;";
+        document.querySelector(".hud").classList.remove("drawer-collapsed");
+      } else {
+        menuDrawer.classList.add("collapsed");
+        drawerHandleIcon.innerHTML = "&#9650;";
+        document.querySelector(".hud").classList.add("drawer-collapsed");
+      }
+      resizeCanvas();
+      setTimeout(resizeCanvas, 320);
+    }
+
+    function toggleDrawer() {
+      setDrawerOpen(!drawerOpen);
+    }
+
+    // Swipe gesture detection
+    let drawerSwipe = { active: false, startY: 0, startX: 0, startTime: 0 };
+    const SWIPE_THRESHOLD = 30;
+    const SWIPE_MAX_HORIZ = 60;
+    const SWIPE_MAX_TIME = 400;
+
+    function addDrawerSwipeListeners(el) {
+      el.addEventListener("touchstart", (e) => {
+        if (!isDrawerMobile()) return;
+        const touch = e.touches[0];
+        drawerSwipe.active = true;
+        drawerSwipe.startY = touch.clientY;
+        drawerSwipe.startX = touch.clientX;
+        drawerSwipe.startTime = Date.now();
+      }, { passive: true });
+
+      el.addEventListener("touchmove", (e) => {
+        if (!drawerSwipe.active) return;
+        e.preventDefault();
+      }, { passive: false });
+
+      el.addEventListener("touchend", (e) => {
+        if (!drawerSwipe.active) return;
+        drawerSwipe.active = false;
+        const touch = e.changedTouches[0];
+        const dy = touch.clientY - drawerSwipe.startY;
+        const dx = Math.abs(touch.clientX - drawerSwipe.startX);
+        const dt = Date.now() - drawerSwipe.startTime;
+        if (dx > SWIPE_MAX_HORIZ || dt > SWIPE_MAX_TIME || Math.abs(dy) < SWIPE_THRESHOLD) return;
+        if (dy < 0 && !drawerOpen) setDrawerOpen(true);
+        else if (dy > 0 && drawerOpen) setDrawerOpen(false);
+      }, { passive: true });
+
+      el.addEventListener("touchcancel", () => { drawerSwipe.active = false; }, { passive: true });
+    }
+
+    if (drawerHandle) addDrawerSwipeListeners(drawerHandle);
+    if (drawerStatusBar) addDrawerSwipeListeners(drawerStatusBar);
+
+    if (drawerHandle) {
+      drawerHandle.addEventListener("click", (e) => {
+        if (!isDrawerMobile()) return;
+        toggleDrawer();
+        e.stopPropagation();
+      });
+    }
 
     // Canvas tap = action on touch devices
     canvas.addEventListener("touchstart", (e) => {
@@ -1462,6 +1599,7 @@ function drawSquashBackgroundProps() {
       if (match.enabled) updateStatus("2P reset. Pick a level, assign chars, Begin Game.");
       else if (campaign.enabled) updateStatus(`Campaign reset. Opponent: ${campaignOpponent().name}. Pick level + character, Begin.`);
       else updateStatus("Reset. Select a level.");
+      if (isDrawerMobile()) setDrawerOpen(true);
     }
 
     // -----------------------------
@@ -1482,6 +1620,7 @@ function drawSquashBackgroundProps() {
                  : campaign.enabled ? "Campaign: pick a level + character, then Begin."
                  : "Pick a level to begin.");
       refreshBeginButton();
+      if (isDrawerMobile()) setDrawerOpen(true);
     }
 
     function handleAction() {
