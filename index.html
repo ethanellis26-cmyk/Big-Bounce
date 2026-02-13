@@ -119,9 +119,7 @@
         pointer-events: none;
       }
 
-      #drawer-status-bar {
-        padding-bottom: 2px;
-      }
+      #drawer-status-bar { padding-bottom: 2px; }
     }
   </style>
 </head>
@@ -182,6 +180,13 @@
     const ctx = canvas.getContext("2d");
     const statusEl = document.getElementById("status");
     const beginBtn = document.getElementById("btnBegin");
+
+    // -----------------------------
+    // Townhouse Poster Image
+    // (Put download.jpg in same folder as index.html)
+    // -----------------------------
+    const townhousePoster = new Image();
+    townhousePoster.src = "download.jpg";
 
     // -----------------------------
     // World + Layout
@@ -266,7 +271,8 @@
     const LEVELS = [
       {
         id: 0, name: "Townhouse", roofType: "angled",
-        roofLeftY: 450, roofRightY: 120,
+        // Raised the right-side ceiling so Walmart 100s are more achievable:
+        roofLeftY: 450, roofRightY: 60,
         gravity: 1900, restitutionFloor: 0.80, restitutionWall: 0.85, restitutionRoof: 0.55,
         wallTopY: null, theme: THEMES.townhouse
       },
@@ -353,27 +359,23 @@
     const campaign = {
       enabled: false,
       started: false,
-      opponentIndex: 0,        // starts at Hans
+      opponentIndex: 0,
       pointsToWin: 7,
 
       playerCharId: 0,
       oppCharId: null,
 
-      // match state
       pScore: 0,
       oScore: 0,
 
-      // point flow
-      pointStarter: 0,         // 0 = Opponent first, 1 = Player first (alternates each POINT, ties replay)
-      ghostScore: null,        // score for THIS point
+      pointStarter: 0,
+      ghostScore: null,
       awaitingPlayerThrow: false,
 
-      // opponent "hot/cold"
       moodDelta: 0,
       moodRemaining: 0,
 
-      // end-of-match banner
-      lastResult: null,        // "WIN" | "LOSE" | "COMPLETE"
+      lastResult: null,
       justAdvanced: false
     };
 
@@ -391,7 +393,7 @@
 
       campaign.pScore = 0;
       campaign.oScore = 0;
-      campaign.pointStarter = 0; // start with opponent first
+      campaign.pointStarter = 0;
       campaign.ghostScore = null;
       campaign.awaitingPlayerThrow = false;
 
@@ -406,7 +408,6 @@
     }
 
     function randomNormal() {
-      // Box-Muller
       let u = 0, v = 0;
       while (u === 0) u = Math.random();
       while (v === 0) v = Math.random();
@@ -416,10 +417,7 @@
     function generateGhostScore() {
       const opp = campaignOpponent();
 
-      // Rare ceiling faults (independent, very rare)
       const rareCeilingFault = Math.random() < 0.005;
-
-      // General "fault" chance (score 0)
       const generalFault = Math.random() < opp.fault;
 
       if (rareCeilingFault) {
@@ -431,11 +429,10 @@
         return 0;
       }
 
-      // occasional hot/cold mini-streaks
       if (campaign.moodRemaining <= 0) {
         const roll = Math.random();
-        if (roll < 0.10) { campaign.moodDelta = +8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); }      // hot
-        else if (roll < 0.20) { campaign.moodDelta = -8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); } // cold
+        if (roll < 0.10) { campaign.moodDelta = +8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); }
+        else if (roll < 0.20) { campaign.moodDelta = -8; campaign.moodRemaining = 2 + Math.floor(Math.random() * 2); }
         else { campaign.moodDelta = 0; campaign.moodRemaining = 0; }
       }
 
@@ -1010,8 +1007,6 @@
     // -----------------------------
     // Touch controls (mobile)
     // -----------------------------
-    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-
     function setupTouchButton(id, onDown, onUp) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1032,26 +1027,11 @@
       }, { passive: false });
     }
 
-    setupTouchButton("tc-left",
-      () => { keys["ArrowLeft"] = true; },
-      () => { keys["ArrowLeft"] = false; }
-    );
-    setupTouchButton("tc-right",
-      () => { keys["ArrowRight"] = true; },
-      () => { keys["ArrowRight"] = false; }
-    );
-    setupTouchButton("tc-jump",
-      () => { attemptJump(); },
-      null
-    );
-    setupTouchButton("tc-action",
-      () => { handleAction(); },
-      null
-    );
-    setupTouchButton("tc-reset",
-      () => { resetGame(); },
-      null
-    );
+    setupTouchButton("tc-left",  () => { keys["ArrowLeft"] = true; },  () => { keys["ArrowLeft"] = false; });
+    setupTouchButton("tc-right", () => { keys["ArrowRight"] = true; }, () => { keys["ArrowRight"] = false; });
+    setupTouchButton("tc-jump",  () => { attemptJump(); }, null);
+    setupTouchButton("tc-action",() => { handleAction(); }, null);
+    setupTouchButton("tc-reset", () => { resetGame(); }, null);
 
     // -----------------------------
     // Mobile Menu Drawer
@@ -1083,11 +1063,8 @@
       setTimeout(resizeCanvas, 320);
     }
 
-    function toggleDrawer() {
-      setDrawerOpen(!drawerOpen);
-    }
+    function toggleDrawer() { setDrawerOpen(!drawerOpen); }
 
-    // Swipe gesture detection
     let drawerSwipe = { active: false, startY: 0, startX: 0, startTime: 0 };
     const SWIPE_THRESHOLD = 30;
     const SWIPE_MAX_HORIZ = 60;
@@ -1134,14 +1111,11 @@
       });
     }
 
-    // Canvas tap = action on touch devices
     canvas.addEventListener("touchstart", (e) => {
-      // Only trigger action if the touch is in the gameplay area (not on controls)
       const rect = canvas.getBoundingClientRect();
       const tx = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
       const ty = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height);
 
-      // Check for panel hit test in multiplayer setup
       const hit = panelHitTestPlayerBlocks(tx, ty);
       if (hit != null) {
         match.setupPickIndex = hit;
@@ -1158,7 +1132,6 @@
       e.preventDefault();
     }, { passive: false });
 
-    // Prevent default touch behaviors on canvas
     canvas.addEventListener("touchmove", (e) => { e.preventDefault(); }, { passive: false });
 
     // -----------------------------
@@ -1178,7 +1151,7 @@
     }
 
     // -----------------------------
-    // NEW: Moon background props (STATIC earth + 4 stars)
+    // Moon background props (STATIC earth + 4 stars)
     // -----------------------------
     const MOON_STARS = Object.freeze([
       { x: playLeft + 160, y: 130, r: 3.5, a: 0.85 },
@@ -1192,12 +1165,10 @@
 
       ctx.save();
 
-      // clip to playable AIR space only
       ctx.beginPath();
       ctx.rect(playLeft, 0, wallX - playLeft, floorY);
       ctx.clip();
 
-      // Stars (4, whitish)
       for (const s of MOON_STARS) {
         ctx.globalAlpha = s.a;
         ctx.fillStyle = "rgba(245, 245, 255, 1)";
@@ -1205,7 +1176,6 @@
         ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
         ctx.fill();
 
-        // tiny cross sparkle
         ctx.globalAlpha = s.a * 0.6;
         ctx.strokeStyle = "rgba(245,245,255,1)";
         ctx.lineWidth = 1.6;
@@ -1218,12 +1188,10 @@
       }
       ctx.globalAlpha = 1;
 
-      // Earth (static planet)
       const ex = playLeft + 200;
       const ey = 150;
       const er = 120;
 
-      // soft glow
       ctx.save();
       ctx.globalAlpha = 0.35;
       ctx.fillStyle = "rgba(59,130,246,0.35)";
@@ -1232,7 +1200,6 @@
       ctx.fill();
       ctx.restore();
 
-      // planet body gradient
       const g = ctx.createRadialGradient(ex - er * 0.35, ey - er * 0.35, er * 0.25, ex, ey, er);
       g.addColorStop(0, "rgba(192,132,252,1)");
       g.addColorStop(1, "rgba(88,28,135,1)");
@@ -1241,7 +1208,6 @@
       ctx.arc(ex, ey, er, 0, Math.PI * 2);
       ctx.fill();
 
-      // land blobs (simple stylized)
       ctx.fillStyle = "rgba(192,132,252,1)";
       ctx.beginPath();
       ctx.ellipse(ex - 18, ey - 10, 22, 14, 0.2, 0, Math.PI * 2);
@@ -1249,7 +1215,6 @@
       ctx.ellipse(ex + 8, ey - 26, 16, 10, 0.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // clouds
       ctx.globalAlpha = 0.35;
       ctx.strokeStyle = "rgba(255,255,255,1)";
       ctx.lineWidth = 5;
@@ -1261,7 +1226,6 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
 
-      // subtle rim light
       ctx.strokeStyle = "rgba(255,255,255,0.35)";
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -1272,7 +1236,7 @@
     }
 
     // -----------------------------
-    // Berlin background props (moved OUTSIDE draw)
+    // Berlin background props
     // -----------------------------
     function drawBerlinBackgroundProps() {
       if (!arena.level || arena.level.id !== 2) return;
@@ -1282,7 +1246,6 @@
       ctx.rect(playLeft, 0, wallX - playLeft, floorY);
       ctx.clip();
 
-      // CAR
       const carX = playLeft + 170;
       const carBaseY = floorY;
       const carW = 340;
@@ -1314,7 +1277,6 @@
       ctx.lineWidth = 3;
       ctx.strokeRect(carX, carBaseY - carH, carW, carH);
 
-      // STREET LAMP
       const lampX = carX + carW + 170;
       const lampBaseY = floorY;
       const lampHeight = 280;
@@ -1347,110 +1309,92 @@
       ctx.restore();
     }
 
-function drawSquashBackgroundProps() {
-  if (!arena.level || arena.level.id !== 3) return; // Squash = id 3
+    // -----------------------------
+    // Squash background props (two ceiling lights + scoreboard)
+    // -----------------------------
+    function drawSquashBackgroundProps() {
+      if (!arena.level || arena.level.id !== 3) return;
 
-  ctx.save();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(playLeft, 0, wallX - playLeft, floorY);
+      ctx.clip();
 
-  // Clip to playable AIR only (prevents drawing over floor/wall blocks)
-  ctx.beginPath();
-  ctx.rect(playLeft, 0, wallX - playLeft, floorY);
-  ctx.clip();
+      const roofY = roofAtX(playLeft + 60);
+      const cx = playLeft + (wallX - playLeft) * 0.5;
 
-  const roofY = roofAtX(playLeft + 60); // squash roof is flat anyway
-  const cx = playLeft + (wallX - playLeft) * 0.5;
+      function drawCeilingLight(x) {
+        const mountY = roofY + 14;
+        const bodyW = 140;
+        const bodyH = 22;
 
-  // -----------------------
-  // TWO CEILING-MOUNTED LIGHTS
-  // -----------------------
-  function drawCeilingLight(x) {
-    const mountY = roofY + 14;     // how "attached" to the roof it looks
-    const bodyW = 140;
-    const bodyH = 22;
+        ctx.strokeStyle = "rgba(15,23,42,0.35)";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(x, roofY + 2);
+        ctx.lineTo(x, mountY);
+        ctx.stroke();
 
-    // mount stem
-    ctx.strokeStyle = "rgba(15,23,42,0.35)";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(x, roofY + 2);
-    ctx.lineTo(x, mountY);
-    ctx.stroke();
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.fillRect(x - bodyW/2, mountY, bodyW, bodyH);
 
-    // light body
-    ctx.fillStyle = "rgba(255,255,255,0.65)";
-    ctx.fillRect(x - bodyW/2, mountY, bodyW, bodyH);
+        ctx.strokeStyle = "rgba(0,0,0,0.25)";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x - bodyW/2, mountY, bodyW, bodyH);
 
-    // body outline
-    ctx.strokeStyle = "rgba(0,0,0,0.25)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x - bodyW/2, mountY, bodyW, bodyH);
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.beginPath();
+        ctx.moveTo(x - bodyW/2, mountY + bodyH);
+        ctx.lineTo(x + bodyW/2, mountY + bodyH);
+        ctx.lineTo(x + 240, floorY - 10);
+        ctx.lineTo(x - 240, floorY - 10);
+        ctx.closePath();
+        ctx.fill();
+      }
 
-    // glow cone (subtle)
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    ctx.beginPath();
-    ctx.moveTo(x - bodyW/2, mountY + bodyH);
-    ctx.lineTo(x + bodyW/2, mountY + bodyH);
-    ctx.lineTo(x + 240, floorY - 10);
-    ctx.lineTo(x - 240, floorY - 10);
-    ctx.closePath();
-    ctx.fill();
-  }
+      const light1X = playLeft + (wallX - playLeft) * 0.33;
+      const light2X = playLeft + (wallX - playLeft) * 0.70;
+      drawCeilingLight(light1X);
+      drawCeilingLight(light2X);
 
-  // positions (edit these to move the lights)
-  const light1X = playLeft + (wallX - playLeft) * 0.33;
-  const light2X = playLeft + (wallX - playLeft) * 0.70;
+      const sbW = 260;
+      const sbH = 110;
+      const sbX = cx - sbW / 2;
+      const sbY = roofY + 120;
 
-  drawCeilingLight(light1X);
-  drawCeilingLight(light2X);
+      ctx.fillStyle = "rgba(15,23,42,0.35)";
+      ctx.fillRect(sbX, sbY, sbW, sbH);
 
-  // -----------------------
-  // SCOREBOARD (on back wall area)
-  // -----------------------
-  const sbW = 260;
-  const sbH = 110;
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(sbX, sbY, sbW, sbH);
 
-  // position (edit these to move scoreboard)
-  const sbX = cx - sbW / 2;
-  const sbY = roofY + 120;
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(sbX + 10, sbY + 10, sbW - 20, sbH - 20);
 
-  // board frame
-  ctx.fillStyle = "rgba(15,23,42,0.35)";
-  ctx.fillRect(sbX, sbY, sbW, sbH);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.textAlign = "center";
+      ctx.font = "16px system-ui";
+      ctx.fillText("SQUASH", sbX + sbW/2, sbY + 32);
 
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(sbX, sbY, sbW, sbH);
+      ctx.font = "28px system-ui";
+      ctx.fillText("0  -  0", sbX + sbW/2, sbY + 72);
 
-  // inner screen
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillRect(sbX + 10, sbY + 10, sbW - 20, sbH - 20);
+      ctx.font = "12px system-ui";
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fillText("BIG BOUNCE COURT", sbX + sbW/2, sbY + 98);
 
-  // text
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  ctx.textAlign = "center";
-  ctx.font = "16px system-ui";
-  ctx.fillText("SQUASH", sbX + sbW/2, sbY + 32);
-
-  ctx.font = "28px system-ui";
-  ctx.fillText("0  -  0", sbX + sbW/2, sbY + 72);
-
-  ctx.font = "12px system-ui";
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.fillText("BIG BOUNCE COURT", sbX + sbW/2, sbY + 98);
-
-  ctx.textAlign = "left";
-  ctx.restore();
-}
-
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
 
     // -----------------------------
-    // Townhouse props (as you had)
+    // Townhouse props + POSTER over couch
     // -----------------------------
     function drawTownhouseBackgroundProps() {
       if (!arena.level || arena.level.id !== 0) return;
 
       ctx.save();
-
       ctx.beginPath();
       ctx.rect(playLeft, 0, wallX - playLeft, floorY);
       ctx.clip();
@@ -1503,27 +1447,67 @@ function drawSquashBackgroundProps() {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // GREEN COUCH
+      // COUCH (deep red/maroon body + brown arms)
       const cx = playLeft + 250;
       const cy = floorY - 90;
       const cw = 380;
       const ch = 95;
 
-      ctx.fillStyle = "#16a34a";
+      // seat/base
+      ctx.fillStyle = "#6b0f1a"; // deep maroon
       ctx.fillRect(cx, cy, cw, ch);
 
-      ctx.fillStyle = "#15803d";
+      // back
+      ctx.fillStyle = "#7a1420";
       ctx.fillRect(cx, cy - 70, cw, 75);
 
-      ctx.fillStyle = "#166534";
+      // arms (brown)
+      ctx.fillStyle = "#5b3a1e";
       ctx.fillRect(cx - 28, cy - 50, 35, ch + 50);
       ctx.fillRect(cx + cw - 7, cy - 50, 35, ch + 50);
 
+      // outlines
       ctx.strokeStyle = "rgba(15,23,42,0.35)";
       ctx.lineWidth = 4;
       ctx.strokeRect(cx, cy - 70, cw, ch + 70);
       ctx.strokeRect(cx - 28, cy - 50, 35, ch + 50);
       ctx.strokeRect(cx + cw - 7, cy - 50, 35, ch + 50);
+
+      // -----------------------
+      // POSTER (over the couch)
+      // -----------------------
+      const posterW = 190;
+      const posterH = 250;
+
+      const px = cx + (cw - posterW) / 2;
+      const py = (cy - 70) - posterH - 18;
+
+      // frame
+      ctx.fillStyle = "rgba(15,23,42,0.45)";
+      ctx.fillRect(px - 8, py - 8, posterW + 16, posterH + 16);
+
+      // inner matte
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(px - 4, py - 4, posterW + 8, posterH + 8);
+
+      // image if loaded
+      if (townhousePoster.complete && townhousePoster.naturalWidth > 0) {
+        ctx.drawImage(townhousePoster, px, py, posterW, posterH);
+      } else {
+        ctx.fillStyle = "rgba(59,130,246,0.18)";
+        ctx.fillRect(px, py, posterW, posterH);
+        ctx.fillStyle = "rgba(15,23,42,0.6)";
+        ctx.font = "14px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Poster loading…", px + posterW/2, py + posterH/2);
+        ctx.textAlign = "left";
+      }
+
+      // frame outline
+      ctx.strokeStyle = "rgba(0,0,0,0.30)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(px - 8, py - 8, posterW + 16, posterH + 16);
+      ctx.strokeRect(px, py, posterW, posterH);
 
       ctx.restore();
     }
@@ -2516,12 +2500,11 @@ function drawSquashBackgroundProps() {
 
       ctx.fillRect(playLeft, 0, W - playLeft, H);
 
-      // Background props (BEHIND everything)
-      drawMoonBackgroundProps();       // ✅ NEW (Moon: earth + stars)
+      // Background props (behind everything)
+      drawMoonBackgroundProps();
       drawBerlinBackgroundProps();
       drawTownhouseBackgroundProps();
       drawSquashBackgroundProps();
-
 
       drawRoof();
 
@@ -2653,7 +2636,7 @@ function drawSquashBackgroundProps() {
     }
 
     // -----------------------------
-    // Init
+    // Init buttons
     // -----------------------------
     function initButtons() {
       document.getElementById("modeSingle").classList.toggle("active", true);
