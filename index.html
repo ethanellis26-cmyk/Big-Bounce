@@ -333,13 +333,13 @@
       setupPickIndex: 0,
       firstPlayerScoredZeroThisRound: false,
       players: [
-        { name: "P1", characterId: null, roundsWon: 0, lastThrow: null, throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catches: 0, best: null },
-        { name: "P2", characterId: null, roundsWon: 0, lastThrow: null, throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catches: 0, best: null }
+        { name: "P1", characterId: null, roundsWon: 0, lastThrow: null, throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catchAttempts: 0, catches: 0, best: null },
+        { name: "P2", characterId: null, roundsWon: 0, lastThrow: null, throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catchAttempts: 0, catches: 0, best: null }
       ]
     };
 
     function resetPlayerStats(p) {
-      p.throws = 0; p.sum = 0; p.walmart100s = 0; p.layups = 0; p.attempts = 0; p.catches = 0; p.best = null; p.lastThrow = null;
+      p.throws = 0; p.sum = 0; p.walmart100s = 0; p.layups = 0; p.attempts = 0; p.catchAttempts = 0; p.catches = 0; p.best = null; p.lastThrow = null;
     }
 
     // -----------------------------
@@ -681,7 +681,8 @@
       }
 
       if (L.id === 0) {
-        arena.wallTopY = clamp(roofAtX(wallX), 0, floorY - 40);
+          // Fixed wall height (independent of roof)
+  arena.wallTopY = floorY - 805; // tune this
       } else if (L.id === 1) {
         arena.wallTopY = 0;
       } else {
@@ -898,7 +899,8 @@
         pendingPoints: 0,
         invalid: false,
         invalidReason: "",
-        popupCeilingShown: false
+        popupCeilingShown: false,
+        ceilingFaultPenaltyApplied: false
       };
     }
     let shot = newShotContext();
@@ -909,7 +911,7 @@
     let lastThrowPoints = null;
     let lastWallHitY = null;
 
-    const singleStats = { throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catches: 0, best: null };
+    const singleStats = { throws: 0, sum: 0, walmart100s: 0, layups: 0, attempts: 0, catchAttempts: 0, catches: 0, best: null };
 
     function resetSingleStats() {
       singleStats.throws = 0;
@@ -917,12 +919,13 @@
       singleStats.walmart100s = 0;
       singleStats.layups = 0;
       singleStats.attempts = 0;
+      singleStats.catchAttempts = 0;
       singleStats.catches = 0;
       singleStats.best = null;
     }
 
     function avgScore(stats) { return stats.throws > 0 ? (stats.sum / stats.throws) : 0; }
-    function catchPct(stats) { return stats.attempts > 0 ? (stats.catches / stats.attempts) : 0; }
+    function catchPct(stats) { return stats.catchAttempts > 0 ? (stats.catches / stats.catchAttempts) : 0; }
 
     // -----------------------------
     // Scoring helper
@@ -1658,8 +1661,13 @@
       resetBallToHand();
       ball.active = true;
 
-      if (match.enabled) match.players[match.activeIndex].attempts++;
-      else if (!campaign.enabled) singleStats.attempts++;
+      if (match.enabled) {
+        match.players[match.activeIndex].attempts++;
+        match.players[match.activeIndex].catchAttempts++;
+      } else if (!campaign.enabled) {
+        singleStats.attempts++;
+        singleStats.catchAttempts++;
+      }
 
       if (!match.enabled && !campaign.enabled) singleShotTimer = SINGLE_SHOT_TIMEOUT_S;
 
@@ -1766,6 +1774,12 @@
           if (!shot.hitWall) {
             shot.hitRoofBeforeWall = true;
             markInvalid("Roof hit before wall");
+
+            if (!shot.ceilingFaultPenaltyApplied) {
+              shot.ceilingFaultPenaltyApplied = true;
+              if (match.enabled) match.players[match.activeIndex].catchAttempts--;
+              else if (!campaign.enabled) singleStats.catchAttempts--;
+            }
 
             if (!shot.popupCeilingShown) {
               shot.popupCeilingShown = true;
@@ -1924,8 +1938,10 @@
         const pts = shot.pendingPoints;
         ball.active = false;
 
-        if (match.enabled) match.players[match.activeIndex].catches++;
-        else if (!campaign.enabled) singleStats.catches++;
+        if (!shot.invalid) {
+          if (match.enabled) match.players[match.activeIndex].catches++;
+          else if (!campaign.enabled) singleStats.catches++;
+        }
 
         if (pts === 100) {
           showPopup("Walmart 100!", { size: 84, color: "#3b82f6" });
@@ -2317,7 +2333,7 @@
           ctx.fillText("ROUNDS", 14, y + 102);
 
           const avg = p.throws > 0 ? (p.sum / p.throws) : 0;
-          const pct = p.attempts > 0 ? Math.round((p.catches / p.attempts) * 100) : 0;
+          const pct = p.catchAttempts > 0 ? Math.round((p.catches / p.catchAttempts) * 100) : 0;
           const best = (p.best == null) ? "-" : p.best;
 
           ctx.font = "14px system-ui";
