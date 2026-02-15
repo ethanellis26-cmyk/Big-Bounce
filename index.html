@@ -319,13 +319,19 @@
       musicOscillators: [],
       musicGains: [],
       loopTimerId: null,
-      nextNoteTime: 0
+      nextNoteTime: 0,
+      noteTimerIds: []
     };
 
     function stopBackgroundMusic() {
       if (musicState.loopTimerId) {
         clearTimeout(musicState.loopTimerId);
         musicState.loopTimerId = null;
+      }
+      // Clear any scheduled per-note timers to avoid notes playing after stop
+      if (musicState.noteTimerIds && musicState.noteTimerIds.length) {
+        musicState.noteTimerIds.forEach(id => { try { clearTimeout(id); } catch (e) {} });
+        musicState.noteTimerIds = [];
       }
       // Stop all ongoing oscillators
       musicState.musicOscillators.forEach(osc => {
@@ -335,26 +341,78 @@
       musicState.musicGains = [];
     }
 
+    // Long-form note arrays (sourced from music_notes.html)
+    const townhouseNotes = [
+      [131, 1.0], [156, 0.5], [165, 0.5],
+      [175, 0.75], [196, 0.5], [220, 1.0],
+      [196, 1.5],
+      [165, 1.0], [175, 0.75], [196, 0.5],
+      [220, 1.0], [233, 0.5], [196, 0.5],
+      [165, 1.5],
+      [220, 1.0], [156, 0.5], [175, 0.75],
+      [196, 1.0], [165, 0.75], [131, 1.0]
+    ];
+
+    const moonNotes = [
+      [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],
+      [83, 1.0], [83, 1.0], [124, 0.5], [83, 0.5],
+      [83, 1.0], [110, 1.0], [124, 0.5], [83, 0.5],
+      [83, 2.0],
+      [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],
+      [83, 1.0], [83, 1.0], [131, 0.5], [83, 0.5],
+      [110, 1.0], [124, 1.0], [110, 0.5], [83, 0.5],
+      [83, 2.0]
+    ];
+
+    const berlinNotes = [
+      [165, 0.5], [196, 0.5], [220, 0.75], [196, 0.5],
+      [165, 1.0], [147, 0.5], [165, 0.75],
+      [196, 1.5],
+      [220, 0.5], [196, 0.5], [165, 0.5], [147, 0.5],
+      [165, 1.0], [196, 0.5], [220, 0.75],
+      [196, 1.0], [165, 1.0],
+      [147, 0.5], [165, 0.75], [196, 0.5], [220, 1.0],
+      [196, 0.5], [165, 0.5], [147, 1.0],
+      [131, 0.75], [147, 0.5], [165, 1.0],
+      [220, 0.5], [220, 0.75], [196, 0.5], [165, 0.5],
+      [196, 1.0], [220, 0.5], [196, 0.75],
+      [165, 1.5], [196, 0.5], [220, 0.5],
+      [196, 0.75], [165, 1.0], [147, 1.0]
+    ];
+
+    const squashNotes = [
+      [131, 1.0], [175, 0.75], [220, 1.0], [247, 0.5],
+      [294, 1.5], [220, 0.75], [196, 1.0],
+      [165, 1.0], [196, 0.75], [220, 1.25], [247, 0.5],
+      [294, 2.0],
+      [220, 1.0], [196, 1.0], [175, 0.75], [147, 0.5],
+      [131, 1.5], [165, 1.0], [196, 1.0],
+      [247, 1.0], [220, 0.75], [196, 1.0], [175, 0.75],
+      [220, 1.5], [247, 0.75], [294, 1.5]
+    ];
+
+    // -----------------------------
+    // Wind (global, per-throw)
+    // -----------------------------
+    const WIND_SCALE = 0.6; // tuned so strength 10 is noticeable but not chaotic
+    let windDir = 1;               // -1 = left, +1 = right
+    let windStrength = null;       // 1..10 integer
+    let windPushPerFrame = 0;      // velocity offset applied each frame (px/frame)
+    let windRerollNextShot = true; // set true at start so first shot gets wind
+
+    function rerollWind() {
+      windDir = Math.random() < 0.5 ? -1 : 1;
+      windStrength = 1 + Math.floor(Math.random() * 10); // 1..10
+      windPushPerFrame = windDir * (windStrength / 10) * WIND_SCALE;
+    }
+
     function playTownhouseMusic() {
       try {
         const ctx = getAudioContext();
         const now = ctx.currentTime;
 
-        // Jazzy C chord vibe with chromatic notes - sophisticated and smooth
-        // [frequency, duration in beats]
-        const notes = [
-          [131, 1.0], [156, 0.5], [165, 0.5],               // C D# E
-          [175, 0.75], [196, 0.5], [220, 1.0],              // F G A
-          [196, 1.5],                                         // G
-          
-          [165, 1.0], [175, 0.75], [196, 0.5],              // E F G
-          [220, 1.0], [233, 0.5], [196, 0.5],               // A Bb G
-          [165, 1.5],                                         // E
-          
-          [220, 1.0], [156, 0.5], [175, 0.75],              // A D# F
-          [196, 1.0], [165, 0.75], [131, 1.0]               // G E C
-        ];
-
+        // Use townhouseNotes defined above
+        const notes = townhouseNotes;
         const beatDuration = 0.30; // seconds per beat (slower tempo)
         let currentTime = now;
 
@@ -363,7 +421,7 @@
           const duration = beats * beatDuration;
 
           // Schedule note using closure
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             try {
               if (musicState.currentLevelId === 0) {
                 const osc = ctx.createOscillator();
@@ -387,6 +445,7 @@
               }
             } catch (e) {}
           }, (currentTime - now + i * beatDuration * 1000));
+          musicState.noteTimerIds.push(timerId);
 
           currentTime += duration;
         }
@@ -408,28 +467,8 @@
         const ctx = getAudioContext();
         const now = ctx.currentTime;
 
-        // Bavarian folk inspired melody - calm and relaxing
-        // [frequency, duration in beats]
-        const notes = [
-          [165, 0.5], [196, 0.5], [220, 0.75], [196, 0.5],   // E G A G (opening phrase)
-          [165, 1.0], [147, 0.5], [165, 0.75],               // E D E
-          [196, 1.5],                                         // G
-          
-          [220, 0.5], [196, 0.5], [165, 0.5], [147, 0.5],   // A G E D
-          [165, 1.0], [196, 0.5], [220, 0.75],               // E G A
-          [196, 1.0], [165, 1.0],                            // G E
-          
-          [147, 0.5], [165, 0.75], [196, 0.5], [220, 1.0],  // D E G A
-          [196, 0.5], [165, 0.5], [147, 1.0],                // G E D
-          [131, 0.75], [147, 0.5], [165, 1.0],               // C D E
-          
-          [220, 0.5], [220, 0.75], [196, 0.5], [165, 0.5],  // A A G E
-          [196, 1.0], [220, 0.5], [196, 0.75],               // G A G
-          [165, 1.5], [196, 0.5], [220, 0.5],                // E G A (ending)
-          
-          [196, 0.75], [165, 1.0], [147, 1.0]                // G E D (final)
-        ];
-
+        // Use berlinNotes defined above
+        const notes = berlinNotes;
         const beatDuration = 0.30; // seconds per beat (slower tempo)
         let currentTime = now;
 
@@ -438,7 +477,7 @@
           const duration = beats * beatDuration;
 
           // Schedule note using closure
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             try {
               if (musicState.currentLevelId === 2) {
                 const osc = ctx.createOscillator();
@@ -462,6 +501,7 @@
               }
             } catch (e) {}
           }, (currentTime - now + i * beatDuration * 1000));
+          musicState.noteTimerIds.push(timerId);
 
           currentTime += duration;
         }
@@ -483,20 +523,8 @@
         const ctx = getAudioContext();
         const now = ctx.currentTime;
 
-        // Chill techno vibe - minimalistic and hypnotic
-        // [frequency, duration in beats]
-        const notes = [
-          [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],      // low pulse with shimmer
-          [83, 1.0], [83, 1.0], [124, 0.5], [83, 0.5],      // variation
-          [83, 1.0], [110, 1.0], [124, 0.5], [83, 0.5],     // building
-          [83, 2.0],                                          // resolution
-          
-          [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],      // repeat pattern
-          [83, 1.0], [83, 1.0], [131, 0.5], [83, 0.5],      // slight variation
-          [110, 1.0], [124, 1.0], [110, 0.5], [83, 0.5],    // moving up
-          [83, 2.0]                                           // back to base
-        ];
-
+        // Use moonNotes defined above
+        const notes = moonNotes;
         const beatDuration = 0.22;
         let currentTime = now;
 
@@ -504,7 +532,7 @@
           const [freq, beats] = notes[i];
           const duration = beats * beatDuration;
 
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             try {
               if (musicState.currentLevelId === 1) {
                 const osc = ctx.createOscillator();
@@ -528,6 +556,7 @@
               }
             } catch (e) {}
           }, (currentTime - now + i * beatDuration * 1000));
+          musicState.noteTimerIds.push(timerId);
 
           currentTime += duration;
         }
@@ -548,22 +577,8 @@
         const ctx = getAudioContext();
         const now = ctx.currentTime;
 
-        // Orchestral and melodic - dramatic and flowing
-        // [frequency, duration in beats]
-        const notes = [
-          [131, 1.0], [175, 0.75], [220, 1.0], [247, 0.5],    // C F A B (rising opening)
-          [294, 1.5], [220, 0.75], [196, 1.0],                // D A G
-          
-          [165, 1.0], [196, 0.75], [220, 1.25], [247, 0.5],   // E G A B (lyrical phrase)
-          [294, 2.0],                                          // D (sustained)
-          
-          [220, 1.0], [196, 1.0], [175, 0.75], [147, 0.5],    // A G F D (descending)
-          [131, 1.5], [165, 1.0], [196, 1.0],                 // C E G (resolution)
-          
-          [247, 1.0], [220, 0.75], [196, 1.0], [175, 0.75],   // B A G F (dramatic arc)
-          [220, 1.5], [247, 0.75], [294, 1.5]                 // A B D (ending flourish)
-        ];
-
+        // Use squashNotes defined above
+        const notes = squashNotes;
         const beatDuration = 0.30; // seconds per beat (slower tempo)
         let currentTime = now;
 
@@ -571,7 +586,7 @@
           const [freq, beats] = notes[i];
           const duration = beats * beatDuration;
 
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             try {
               if (musicState.currentLevelId === 3) {
                 const osc = ctx.createOscillator();
@@ -595,6 +610,7 @@
               }
             } catch (e) {}
           }, (currentTime - now + i * beatDuration * 1000));
+          musicState.noteTimerIds.push(timerId);
 
           currentTime += duration;
         }
@@ -1380,6 +1396,10 @@
     // Helper: end the run (Single Over)
     // -----------------------------
     function endSingleRun() {
+      // Debug logging to help diagnose unexpected run termination
+      try {
+        console.log("endSingleRun called", { gameMode, SINGLE_TURNS, attempts: singleStats.attempts, throws: singleStats.throws });
+      } catch (e) {}
       state = State.SINGLE_OVER;
       singleShotTimer = 0;
       updateStatus("RUN OVER");
@@ -1947,6 +1967,12 @@
       singleShotTimer = 0;
       state = arena.level ? State.POWER_METER : State.SELECT_LEVEL;
       updateStatus(arena.level ? "Ready: lock POWER." : "Select a level to begin.");
+      // Reroll wind for the next throw if requested (set after a successful catch)
+      if (windRerollNextShot || windStrength == null) {
+        rerollWind();
+      }
+      // Clear the reroll flag now that a new shot is starting
+      windRerollNextShot = false;
     }
 
     function resetGame() {
@@ -2024,7 +2050,7 @@
       if (state === State.SINGLE_OVER) return;
       if (state === State.CAMPAIGN_OVER) return;
 
-      if (!match.enabled && !campaign.enabled && singleStats.attempts >= SINGLE_TURNS) {
+      if (!match.enabled && !campaign.enabled && gameMode !== Mode.FREE_PLAY && singleStats.attempts >= SINGLE_TURNS) {
         endSingleRun();
         return;
       }
@@ -2126,6 +2152,11 @@
 
     function updateBall(dt) {
       if (!ball.active) return;
+      // Apply wind push per frame while the ball is active (constant during a throw)
+      // This is a small velocity offset applied each frame (not integrated acceleration)
+      if (typeof windPushPerFrame !== 'undefined' && windPushPerFrame !== 0) {
+        ball.vx += windPushPerFrame;
+      }
 
       ball.vy += arena.gravity * dt;
       ball.x += ball.vx * dt;
@@ -2268,6 +2299,8 @@
       if (match.roundShots[oi] == null) {
         match.activeIndex = oi;
         setCurrentCharacterForTurn();
+        // next turn after a catch: reroll wind for the upcoming throw
+        windRerollNextShot = true;
         startNewShot();
         updateStatus(`P${match.activeIndex + 1} turn`);
         return;
@@ -2362,8 +2395,12 @@
         }
 
         if (match.enabled) {
+          // multiplayer: possession changes — ensure wind rerolls for next player's throw
+          windRerollNextShot = true;
           endTurnWithPoints(pts);
         } else if (campaign.enabled) {
+          // campaign: mark reroll so next throw (if any) gets new wind
+          windRerollNextShot = true;
           lastThrowPoints = pts;
           resolveCampaignPoint(pts);
         } else {
@@ -2377,6 +2414,8 @@
 
           if (singleRunIsOver()) endSingleRun();
           else {
+            // mark that wind should reroll for the next throw (possession changed / catch completed)
+            windRerollNextShot = true;
             startNewShot();
             updateStatus("Caught! Lock POWER.");
           }
@@ -2847,7 +2886,11 @@
       ctx.fillText("RUN OVER", cx, cy - 110);
 
       ctx.font = "700 24px Trebuchet MS, system-ui";
-      ctx.fillText(`Turns: ${Math.min(singleStats.attempts, SINGLE_TURNS)}/${SINGLE_TURNS}`, cx, cy - 68);
+      if (gameMode === Mode.FREE_PLAY) {
+        ctx.fillText(`Turns: ${singleStats.attempts}/∞`, cx, cy - 68);
+      } else {
+        ctx.fillText(`Turns: ${Math.min(singleStats.attempts, SINGLE_TURNS)}/${SINGLE_TURNS}`, cx, cy - 68);
+      }
 
       ctx.font = "22px Trebuchet MS, system-ui";
       ctx.fillText(`Total Points: ${total}`, cx, cy - 18);
@@ -3047,6 +3090,20 @@
         ctx.textAlign = "left";
         ctx.font = "18px system-ui";
         ctx.fillText(`TURN: P${match.activeIndex + 1}`, playLeft + 22, 38);
+      }
+
+      // Wind HUD (top-left area)
+      {
+        const hudX = playLeft + 10;
+        const hudY = 62;
+        ctx.fillStyle = "rgba(15,23,42,0.10)";
+        ctx.fillRect(hudX, 10, 200, 44);
+        ctx.fillStyle = arena.theme.ui;
+        ctx.textAlign = "left";
+        ctx.font = "18px system-ui";
+        const arrow = windDir === -1 ? "←" : (windDir === 1 ? "→" : "");
+        const strength = windStrength == null ? "-" : windStrength;
+        ctx.fillText(`Wind: ${arrow} ${strength}`, hudX + 12, 38);
       }
 
       drawPopup();
