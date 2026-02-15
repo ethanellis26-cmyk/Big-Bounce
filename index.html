@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -256,6 +257,357 @@
       ctx.fillStyle = popup.color;
       ctx.fillText(popup.text, cx, cy);
       ctx.restore();
+    }
+
+    // -----------------------------
+    // Sound Effects
+    // -----------------------------
+    let audioContext = null;
+
+    function getAudioContext() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      return audioContext;
+    }
+
+    function playThudSound(frequency, duration = 0.15) {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.frequency.setValueAtTime(frequency, now);
+        osc.frequency.exponentialRampToValueAtTime(frequency * 0.4, now + duration);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+        osc.start(now);
+        osc.stop(now + duration);
+      } catch (e) {
+        // Audio context not available
+      }
+    }
+
+    function playFloorThud() {
+      playThudSound(110, 0.12);
+    }
+
+    function playWallThud() {
+      playThudSound(160, 0.14);
+    }
+
+    function playCeilingThud() {
+      playThudSound(380, 0.10);
+    }
+
+    function playCatchThud() {
+      playThudSound(160, 0.18);
+    }
+
+    // -----------------------------
+    // Background Music (8-bit retro)
+    // -----------------------------
+    const musicState = {
+      currentLevelId: null,
+      musicOscillators: [],
+      musicGains: [],
+      loopTimerId: null,
+      nextNoteTime: 0
+    };
+
+    function stopBackgroundMusic() {
+      if (musicState.loopTimerId) {
+        clearTimeout(musicState.loopTimerId);
+        musicState.loopTimerId = null;
+      }
+      // Stop all ongoing oscillators
+      musicState.musicOscillators.forEach(osc => {
+        try { osc.stop(); } catch (e) {}
+      });
+      musicState.musicOscillators = [];
+      musicState.musicGains = [];
+    }
+
+    function playTownhouseMusic() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        // Jazzy C chord vibe with chromatic notes - sophisticated and smooth
+        // [frequency, duration in beats]
+        const notes = [
+          [131, 1.0], [156, 0.5], [165, 0.5],               // C D# E
+          [175, 0.75], [196, 0.5], [220, 1.0],              // F G A
+          [196, 1.5],                                         // G
+          
+          [165, 1.0], [175, 0.75], [196, 0.5],              // E F G
+          [220, 1.0], [233, 0.5], [196, 0.5],               // A Bb G
+          [165, 1.5],                                         // E
+          
+          [220, 1.0], [156, 0.5], [175, 0.75],              // A D# F
+          [196, 1.0], [165, 0.75], [131, 1.0]               // G E C
+        ];
+
+        const beatDuration = 0.30; // seconds per beat (slower tempo)
+        let currentTime = now;
+
+        for (let i = 0; i < notes.length; i++) {
+          const [freq, beats] = notes[i];
+          const duration = beats * beatDuration;
+
+          // Schedule note using closure
+          setTimeout(() => {
+            try {
+              if (musicState.currentLevelId === 0) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = "sine"; // sine for smooth jazz tone
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                
+                gain.gain.setValueAtTime(0.012, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.003, ctx.currentTime + duration * 0.8);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + duration);
+
+                musicState.musicOscillators.push(osc);
+                musicState.musicGains.push(gain);
+              }
+            } catch (e) {}
+          }, (currentTime - now + i * beatDuration * 1000));
+
+          currentTime += duration;
+        }
+
+        // Schedule loop to restart after all notes finish
+        const totalDuration = currentTime - now;
+        if (musicState.currentLevelId === 0) {
+          musicState.loopTimerId = setTimeout(() => {
+            playTownhouseMusic();
+          }, totalDuration * 1000);
+        }
+      } catch (e) {
+        // Audio context not available
+      }
+    }
+
+    function playBerlinWallMusic() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        // Bavarian folk inspired melody - calm and relaxing
+        // [frequency, duration in beats]
+        const notes = [
+          [165, 0.5], [196, 0.5], [220, 0.75], [196, 0.5],   // E G A G (opening phrase)
+          [165, 1.0], [147, 0.5], [165, 0.75],               // E D E
+          [196, 1.5],                                         // G
+          
+          [220, 0.5], [196, 0.5], [165, 0.5], [147, 0.5],   // A G E D
+          [165, 1.0], [196, 0.5], [220, 0.75],               // E G A
+          [196, 1.0], [165, 1.0],                            // G E
+          
+          [147, 0.5], [165, 0.75], [196, 0.5], [220, 1.0],  // D E G A
+          [196, 0.5], [165, 0.5], [147, 1.0],                // G E D
+          [131, 0.75], [147, 0.5], [165, 1.0],               // C D E
+          
+          [220, 0.5], [220, 0.75], [196, 0.5], [165, 0.5],  // A A G E
+          [196, 1.0], [220, 0.5], [196, 0.75],               // G A G
+          [165, 1.5], [196, 0.5], [220, 0.5],                // E G A (ending)
+          
+          [196, 0.75], [165, 1.0], [147, 1.0]                // G E D (final)
+        ];
+
+        const beatDuration = 0.30; // seconds per beat (slower tempo)
+        let currentTime = now;
+
+        for (let i = 0; i < notes.length; i++) {
+          const [freq, beats] = notes[i];
+          const duration = beats * beatDuration;
+
+          // Schedule note using closure
+          setTimeout(() => {
+            try {
+              if (musicState.currentLevelId === 2) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = "square";
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                
+                gain.gain.setValueAtTime(0.008, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.002, ctx.currentTime + duration * 0.8);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + duration);
+
+                musicState.musicOscillators.push(osc);
+                musicState.musicGains.push(gain);
+              }
+            } catch (e) {}
+          }, (currentTime - now + i * beatDuration * 1000));
+
+          currentTime += duration;
+        }
+
+        // Schedule loop to restart after all notes finish
+        const totalDuration = currentTime - now;
+        if (musicState.currentLevelId === 2) {
+          musicState.loopTimerId = setTimeout(() => {
+            playBerlinWallMusic();
+          }, totalDuration * 1000);
+        }
+      } catch (e) {
+        // Audio context not available
+      }
+    }
+
+    function playMoonMusic() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        // Chill techno vibe - minimalistic and hypnotic
+        // [frequency, duration in beats]
+        const notes = [
+          [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],      // low pulse with shimmer
+          [83, 1.0], [83, 1.0], [124, 0.5], [83, 0.5],      // variation
+          [83, 1.0], [110, 1.0], [124, 0.5], [83, 0.5],     // building
+          [83, 2.0],                                          // resolution
+          
+          [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],      // repeat pattern
+          [83, 1.0], [83, 1.0], [131, 0.5], [83, 0.5],      // slight variation
+          [110, 1.0], [124, 1.0], [110, 0.5], [83, 0.5],    // moving up
+          [83, 2.0]                                           // back to base
+        ];
+
+        const beatDuration = 0.22;
+        let currentTime = now;
+
+        for (let i = 0; i < notes.length; i++) {
+          const [freq, beats] = notes[i];
+          const duration = beats * beatDuration;
+
+          setTimeout(() => {
+            try {
+              if (musicState.currentLevelId === 1) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = "sine"; // sine for smoother techno feel
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                
+                gain.gain.setValueAtTime(0.025, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration * 0.8);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + duration);
+
+                musicState.musicOscillators.push(osc);
+                musicState.musicGains.push(gain);
+              }
+            } catch (e) {}
+          }, (currentTime - now + i * beatDuration * 1000));
+
+          currentTime += duration;
+        }
+
+        const totalDuration = currentTime - now;
+        if (musicState.currentLevelId === 1) {
+          musicState.loopTimerId = setTimeout(() => {
+            playMoonMusic();
+          }, totalDuration * 1000);
+        }
+      } catch (e) {
+        // Audio context not available
+      }
+    }
+
+    function playSquashMusic() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+
+        // Orchestral and melodic - dramatic and flowing
+        // [frequency, duration in beats]
+        const notes = [
+          [131, 1.0], [175, 0.75], [220, 1.0], [247, 0.5],    // C F A B (rising opening)
+          [294, 1.5], [220, 0.75], [196, 1.0],                // D A G
+          
+          [165, 1.0], [196, 0.75], [220, 1.25], [247, 0.5],   // E G A B (lyrical phrase)
+          [294, 2.0],                                          // D (sustained)
+          
+          [220, 1.0], [196, 1.0], [175, 0.75], [147, 0.5],    // A G F D (descending)
+          [131, 1.5], [165, 1.0], [196, 1.0],                 // C E G (resolution)
+          
+          [247, 1.0], [220, 0.75], [196, 1.0], [175, 0.75],   // B A G F (dramatic arc)
+          [220, 1.5], [247, 0.75], [294, 1.5]                 // A B D (ending flourish)
+        ];
+
+        const beatDuration = 0.30; // seconds per beat (slower tempo)
+        let currentTime = now;
+
+        for (let i = 0; i < notes.length; i++) {
+          const [freq, beats] = notes[i];
+          const duration = beats * beatDuration;
+
+          setTimeout(() => {
+            try {
+              if (musicState.currentLevelId === 3) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = "sine"; // sine for smooth orchestral sound
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                
+                gain.gain.setValueAtTime(0.008, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.002, ctx.currentTime + duration * 0.8);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + duration);
+
+                musicState.musicOscillators.push(osc);
+                musicState.musicGains.push(gain);
+              }
+            } catch (e) {}
+          }, (currentTime - now + i * beatDuration * 1000));
+
+          currentTime += duration;
+        }
+
+        const totalDuration = currentTime - now;
+        if (musicState.currentLevelId === 3) {
+          musicState.loopTimerId = setTimeout(() => {
+            playSquashMusic();
+          }, totalDuration * 1000);
+        }
+      } catch (e) {
+        // Audio context not available
+      }
     }
 
     // -----------------------------
@@ -689,6 +1041,23 @@
       const L = LEVELS[levelIndex];
       arena.level = L;
       arena.theme = L.theme || THEMES.townhouse;
+
+      // Manage background music
+      stopBackgroundMusic();
+      musicState.currentLevelId = L.id;
+      if (L.id === 0) {
+        // Start townhouse background music
+        playTownhouseMusic();
+      } else if (L.id === 1) {
+        // Start moon background music
+        playMoonMusic();
+      } else if (L.id === 2) {
+        // Start Berlin Wall background music
+        playBerlinWallMusic();
+      } else if (L.id === 3) {
+        // Start squash background music
+        playSquashMusic();
+      }
 
       arena.roofType = L.roofType;
       arena.gravity = L.gravity;
@@ -1581,6 +1950,9 @@
     }
 
     function resetGame() {
+      stopBackgroundMusic();
+      musicState.currentLevelId = null;
+
       lastThrowPoints = null;
       lastWallHitY = null;
 
@@ -1803,6 +2175,8 @@
             ball.vy = ball.vy - (1 + e) * vDotN * ny;
           }
 
+          playCeilingThud();
+
           if (!shot.hitWall) {
             shot.hitRoofBeforeWall = true;
             markInvalid("Roof hit before wall");
@@ -1825,6 +2199,8 @@
         ball.y = floorY - ball.r;
         ball.vy = -ball.vy * arena.restitutionFloor;
         ball.vx *= arena.floorFriction;
+
+        playFloorThud();
 
         if (!shot.hitWall) shot.bouncedBeforeWall = true;
       }
@@ -1853,6 +2229,8 @@
 
             state = State.RETURNING;
             updateStatus("Wall hit — catch it!");
+
+            playWallThud();
           }
 
           ball.vx = -Math.abs(ball.vx) * arena.restitutionWall;
@@ -1969,6 +2347,8 @@
       if (ball.vy > 0 && rectsOverlap(hands, ballRect)) {
         const pts = shot.pendingPoints;
         ball.active = false;
+
+        playCatchThud();
 
         if (!shot.invalid) {
           if (match.enabled) match.players[match.activeIndex].catches++;
