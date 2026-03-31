@@ -3440,4 +3440,28 @@
       const hud = document.querySelector(".hud");
       const hudHeight = hud ? hud.offsetHeight : 0;
       const controlsHeight = isMobile ? 150 : 0;
-      c
+      const availW = window.innerWidth;
+      const availH = window.innerHeight - hudHeight - controlsHeight;
+
+      const aspect = W / H;
+      let drawW = availW;
+      let drawH = drawW / aspect;
+
+      if (drawH > availH) {
+        drawH = availH;
+        drawW = drawH * aspect;
+      }
+
+      canvas.style.width = Math.floor(drawW) + "px";
+      canvas.style.height = Math.floor(drawH) + "px";
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", () => { setTimeout(resizeCanvas, 100); });
+
+    setMode(Mode.SINGLE); // also calls resetGame() → setupLevelConfig(0) → state = TITLE
+    resizeCanvas();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
