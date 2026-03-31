@@ -1006,12 +1006,20 @@
     // -----------------------------
     const player = { x: playLeft + 20, y: 0, w: 80, h: 110, baseSpeed: 720, vy: 0 };
 
+    let roundPlayerX = null;
+
+    function randomPlayerX() {
+      const minX = playLeft + player.w;     // left buffer = one player width
+      const maxX = wallX - player.w * 2;    // right buffer = one player width from wall face
+      return Math.floor(Math.random() * (maxX - minX)) + minX;
+    }
+
     function groundY() { return floorY - player.h; }
     function isPlayerGrounded() { return player.y >= groundY() - 0.5 && Math.abs(player.vy) < 0.01; }
     function jumpImpulse() { const jumpH = player.h * 0.9; return Math.sqrt(2 * arena.gravity * jumpH); }
 
     function attemptJump() {
-      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER || state === State.MATCH_OVER || state === State.SINGLE_OVER || state === State.CAMPAIGN_OVER) return;
+      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER || state === State.MATCH_OVER || state === State.SINGLE_OVER || state === State.CAMPAIGN_OVER || state === State.POWER_METER || state === State.ANGLE_METER) return;
       if (!arena.level) return;
       if (match.enabled && !match.started) return;
       if (campaign.enabled && !campaign.started) return;
@@ -1804,6 +1812,18 @@
     function startNewShot() {
       shot = newShotContext();
       resetMeters();
+
+      // Set random starting position (multiplayer shares position within a round)
+      if (match.enabled && match.started) {
+        const isNewRound = match.roundShots[0] == null && match.roundShots[1] == null;
+        if (isNewRound) roundPlayerX = randomPlayerX();
+        player.x = roundPlayerX;
+      } else {
+        player.x = randomPlayerX();
+      }
+      player.y = groundY();
+      player.vy = 0;
+
       resetBallToHand();
       singleShotTimer = 0;
       state = arena.level ? State.POWER_METER : State.SELECT_LEVEL;
@@ -1956,16 +1976,20 @@
     // Update loops
     // -----------------------------
     function updatePlayer(dt) {
-      const left = keys["ArrowLeft"];
-      const right = keys["ArrowRight"];
+      const throwingPhase = state === State.POWER_METER || state === State.ANGLE_METER;
 
-      const speedMul = currentCharacter?.stats?.speed ?? 1;
-      const effectiveSpeed = player.baseSpeed * speedMul;
+      if (!throwingPhase) {
+        const left = keys["ArrowLeft"];
+        const right = keys["ArrowRight"];
 
-      if (left) player.x -= effectiveSpeed * dt;
-      if (right) player.x += effectiveSpeed * dt;
+        const speedMul = currentCharacter?.stats?.speed ?? 1;
+        const effectiveSpeed = player.baseSpeed * speedMul;
 
-      player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+        if (left) player.x -= effectiveSpeed * dt;
+        if (right) player.x += effectiveSpeed * dt;
+
+        player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+      }
 
       player.vy += arena.gravity * dt;
       player.y += player.vy * dt;
@@ -1973,11 +1997,13 @@
       const gy = groundY();
       if (player.y > gy) { player.y = gy; player.vy = 0; }
 
-      const hands = getHandsRect();
-      const overflow = (hands.x + hands.w) - (wallX - 6);
-      if (overflow > 0) {
-        player.x -= overflow;
-        player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+      if (!throwingPhase) {
+        const hands = getHandsRect();
+        const overflow = (hands.x + hands.w) - (wallX - 6);
+        if (overflow > 0) {
+          player.x -= overflow;
+          player.x = clamp(player.x, playLeft, wallX - player.w - 10);
+        }
       }
     }
 
@@ -2955,10 +2981,7 @@
       ctx.textAlign = "center";
       ctx.fillStyle = hovered ? "#ffffff" : "rgba(255,255,255,0.88)";
       ctx.font = "bold 24px Trebuchet MS, system-ui";
-      ctx.fillText(title, cx, card.y + card.h / 2 - 12);
-      ctx.fillStyle = hovered ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.52)";
-      ctx.font = "14px Trebuchet MS, system-ui";
-      ctx.fillText(subtitle, cx, card.y + card.h / 2 + 18);
+      ctx.fillText(title, cx, card.y + card.h / 2 + 8);
       ctx.textAlign = "left";
     }
 
@@ -3080,8 +3103,9 @@
         ctx.font = "11px Trebuchet MS, system-ui";
         ctx.fillStyle = "rgba(255,255,255,0.60)";
         ctx.fillText(`Ctrl ${tierLabel(ch.tiers.control)}`, ncx, sprY + sprH + 36);
-        ctx.fillText(`Acc ${tierLabel(ch.tiers.accuracy)}  Spd ${tierLabel(ch.tiers.speed)}`, ncx, sprY + sprH + 52);
-        ctx.fillText(`Catch ${tierLabel(ch.tiers.catching)}`, ncx, sprY + sprH + 68);
+        ctx.fillText(`Acc ${tierLabel(ch.tiers.accuracy)}`, ncx, sprY + sprH + 52);
+        ctx.fillText(`Spd ${tierLabel(ch.tiers.speed)}`, ncx, sprY + sprH + 68);
+        ctx.fillText(`Catch ${tierLabel(ch.tiers.catching)}`, ncx, sprY + sprH + 84);
         ctx.textAlign = "left";
       }
 
@@ -3416,28 +3440,4 @@
       const hud = document.querySelector(".hud");
       const hudHeight = hud ? hud.offsetHeight : 0;
       const controlsHeight = isMobile ? 150 : 0;
-      const availW = window.innerWidth;
-      const availH = window.innerHeight - hudHeight - controlsHeight;
-
-      const aspect = W / H;
-      let drawW = availW;
-      let drawH = drawW / aspect;
-
-      if (drawH > availH) {
-        drawH = availH;
-        drawW = drawH * aspect;
-      }
-
-      canvas.style.width = Math.floor(drawW) + "px";
-      canvas.style.height = Math.floor(drawH) + "px";
-    }
-
-    window.addEventListener("resize", resizeCanvas);
-    window.addEventListener("orientationchange", () => { setTimeout(resizeCanvas, 100); });
-
-    setMode(Mode.SINGLE); // also calls resetGame() → setupLevelConfig(0) → state = TITLE
-    resizeCanvas();
-    requestAnimationFrame(loop);
-  </script>
-</body>
-</html>
+      c
