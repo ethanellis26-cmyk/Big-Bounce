@@ -25,6 +25,9 @@
       border-color: rgba(34, 197, 94, 0.6);
     }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* Canvas menus replace the HTML control rows */
+    #menu-drawer { display: none !important; }
+    #drawer-handle { display: none !important; }
 
     /* Drawer handle - hidden on desktop */
     #drawer-handle { display: none; }
@@ -170,6 +173,11 @@
 
   <canvas id="c" width="1400" height="900"></canvas>
 
+  <audio id="music-0" src="music_townhouse.mp3" loop></audio>
+  <audio id="music-1" src="music_moon.mp3"      loop></audio>
+  <audio id="music-2" src="music_berlin.mp3"    loop></audio>
+  <audio id="music-3" src="music_squash.mp3"    loop></audio>
+
   <!-- Mobile on-screen controls -->
   <div id="touch-controls">
     <div id="tc-left"   class="tc-btn">&larr;</div>
@@ -313,84 +321,21 @@
     }
 
     // -----------------------------
-    // Background Music (8-bit retro)
+    // Background Music (audio files)
     // -----------------------------
-    const musicState = {
-      currentLevelId: null,
-      musicOscillators: [],
-      musicGains: [],
-      loopTimerId: null,
-      nextNoteTime: 0,
-      noteTimerIds: []
-    };
+    const levelMusic = [0,1,2,3].map(i => document.getElementById("music-" + i));
+    let currentMusic = null;
 
-    function stopBackgroundMusic() {
-      if (musicState.loopTimerId) {
-        clearTimeout(musicState.loopTimerId);
-        musicState.loopTimerId = null;
-      }
-      // Clear any scheduled per-note timers to avoid notes playing after stop
-      if (musicState.noteTimerIds && musicState.noteTimerIds.length) {
-        musicState.noteTimerIds.forEach(id => { try { clearTimeout(id); } catch (e) {} });
-        musicState.noteTimerIds = [];
-      }
-      // Stop all ongoing oscillators
-      musicState.musicOscillators.forEach(osc => {
-        try { osc.stop(); } catch (e) {}
-      });
-      musicState.musicOscillators = [];
-      musicState.musicGains = [];
+    function stopLevelMusic() {
+      if (currentMusic) { currentMusic.pause(); currentMusic.currentTime = 0; }
+      currentMusic = null;
     }
 
-    // Long-form note arrays (sourced from music_notes.html)
-    const townhouseNotes = [
-      [131, 1.0], [156, 0.5], [165, 0.5],
-      [175, 0.75], [196, 0.5], [220, 1.0],
-      [196, 1.5],
-      [165, 1.0], [175, 0.75], [196, 0.5],
-      [220, 1.0], [233, 0.5], [196, 0.5],
-      [165, 1.5],
-      [220, 1.0], [156, 0.5], [175, 0.75],
-      [196, 1.0], [165, 0.75], [131, 1.0]
-    ];
-
-    const moonNotes = [
-      [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],
-      [83, 1.0], [83, 1.0], [124, 0.5], [83, 0.5],
-      [83, 1.0], [110, 1.0], [124, 0.5], [83, 0.5],
-      [83, 2.0],
-      [83, 1.0], [83, 1.0], [110, 0.5], [83, 0.5],
-      [83, 1.0], [83, 1.0], [131, 0.5], [83, 0.5],
-      [110, 1.0], [124, 1.0], [110, 0.5], [83, 0.5],
-      [83, 2.0]
-    ];
-
-    const berlinNotes = [
-      [165, 0.5], [196, 0.5], [220, 0.75], [196, 0.5],
-      [165, 1.0], [147, 0.5], [165, 0.75],
-      [196, 1.5],
-      [220, 0.5], [196, 0.5], [165, 0.5], [147, 0.5],
-      [165, 1.0], [196, 0.5], [220, 0.75],
-      [196, 1.0], [165, 1.0],
-      [147, 0.5], [165, 0.75], [196, 0.5], [220, 1.0],
-      [196, 0.5], [165, 0.5], [147, 1.0],
-      [131, 0.75], [147, 0.5], [165, 1.0],
-      [220, 0.5], [220, 0.75], [196, 0.5], [165, 0.5],
-      [196, 1.0], [220, 0.5], [196, 0.75],
-      [165, 1.5], [196, 0.5], [220, 0.5],
-      [196, 0.75], [165, 1.0], [147, 1.0]
-    ];
-
-    const squashNotes = [
-      [131, 1.0], [175, 0.75], [220, 1.0], [247, 0.5],
-      [294, 1.5], [220, 0.75], [196, 1.0],
-      [165, 1.0], [196, 0.75], [220, 1.25], [247, 0.5],
-      [294, 2.0],
-      [220, 1.0], [196, 1.0], [175, 0.75], [147, 0.5],
-      [131, 1.5], [165, 1.0], [196, 1.0],
-      [247, 1.0], [220, 0.75], [196, 1.0], [175, 0.75],
-      [220, 1.5], [247, 0.75], [294, 1.5]
-    ];
+    function playLevelMusic(levelId) {
+      stopLevelMusic();
+      const track = levelMusic[levelId];
+      if (track) { currentMusic = track; track.play().catch(() => {}); }
+    }
 
     // -----------------------------
     // Wind (global, per-throw)
@@ -407,225 +352,6 @@
       windPushPerFrame = windDir * (windStrength / 10) * WIND_SCALE;
     }
 
-    function playTownhouseMusic() {
-      try {
-        const ctx = getAudioContext();
-        const now = ctx.currentTime;
-
-        // Use townhouseNotes defined above
-        const notes = townhouseNotes;
-        const beatDuration = 0.30; // seconds per beat (slower tempo)
-        let currentTime = now;
-
-        for (let i = 0; i < notes.length; i++) {
-          const [freq, beats] = notes[i];
-          const duration = beats * beatDuration;
-
-          // Schedule note using closure
-          const timerId = setTimeout(() => {
-            try {
-              if (musicState.currentLevelId === 0) {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc.type = "sine"; // sine for smooth jazz tone
-                osc.frequency.setValueAtTime(freq, ctx.currentTime);
-                
-                gain.gain.setValueAtTime(0.012, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.003, ctx.currentTime + duration * 0.8);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
-
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + duration);
-
-                musicState.musicOscillators.push(osc);
-                musicState.musicGains.push(gain);
-              }
-            } catch (e) {}
-          }, (currentTime - now + i * beatDuration * 1000));
-          musicState.noteTimerIds.push(timerId);
-
-          currentTime += duration;
-        }
-
-        // Schedule loop to restart after all notes finish
-        const totalDuration = currentTime - now;
-        if (musicState.currentLevelId === 0) {
-          musicState.loopTimerId = setTimeout(() => {
-            playTownhouseMusic();
-          }, totalDuration * 1000);
-        }
-      } catch (e) {
-        // Audio context not available
-      }
-    }
-
-    function playBerlinWallMusic() {
-      try {
-        const ctx = getAudioContext();
-        const now = ctx.currentTime;
-
-        // Use berlinNotes defined above
-        const notes = berlinNotes;
-        const beatDuration = 0.30; // seconds per beat (slower tempo)
-        let currentTime = now;
-
-        for (let i = 0; i < notes.length; i++) {
-          const [freq, beats] = notes[i];
-          const duration = beats * beatDuration;
-
-          // Schedule note using closure
-          const timerId = setTimeout(() => {
-            try {
-              if (musicState.currentLevelId === 2) {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc.type = "square";
-                osc.frequency.setValueAtTime(freq, ctx.currentTime);
-                
-                gain.gain.setValueAtTime(0.008, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.002, ctx.currentTime + duration * 0.8);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
-
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + duration);
-
-                musicState.musicOscillators.push(osc);
-                musicState.musicGains.push(gain);
-              }
-            } catch (e) {}
-          }, (currentTime - now + i * beatDuration * 1000));
-          musicState.noteTimerIds.push(timerId);
-
-          currentTime += duration;
-        }
-
-        // Schedule loop to restart after all notes finish
-        const totalDuration = currentTime - now;
-        if (musicState.currentLevelId === 2) {
-          musicState.loopTimerId = setTimeout(() => {
-            playBerlinWallMusic();
-          }, totalDuration * 1000);
-        }
-      } catch (e) {
-        // Audio context not available
-      }
-    }
-
-    function playMoonMusic() {
-      try {
-        const ctx = getAudioContext();
-        const now = ctx.currentTime;
-
-        // Use moonNotes defined above
-        const notes = moonNotes;
-        const beatDuration = 0.22;
-        let currentTime = now;
-
-        for (let i = 0; i < notes.length; i++) {
-          const [freq, beats] = notes[i];
-          const duration = beats * beatDuration;
-
-          const timerId = setTimeout(() => {
-            try {
-              if (musicState.currentLevelId === 1) {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc.type = "sine"; // sine for smoother techno feel
-                osc.frequency.setValueAtTime(freq, ctx.currentTime);
-                
-                gain.gain.setValueAtTime(0.025, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + duration * 0.8);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
-
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + duration);
-
-                musicState.musicOscillators.push(osc);
-                musicState.musicGains.push(gain);
-              }
-            } catch (e) {}
-          }, (currentTime - now + i * beatDuration * 1000));
-          musicState.noteTimerIds.push(timerId);
-
-          currentTime += duration;
-        }
-
-        const totalDuration = currentTime - now;
-        if (musicState.currentLevelId === 1) {
-          musicState.loopTimerId = setTimeout(() => {
-            playMoonMusic();
-          }, totalDuration * 1000);
-        }
-      } catch (e) {
-        // Audio context not available
-      }
-    }
-
-    function playSquashMusic() {
-      try {
-        const ctx = getAudioContext();
-        const now = ctx.currentTime;
-
-        // Use squashNotes defined above
-        const notes = squashNotes;
-        const beatDuration = 0.30; // seconds per beat (slower tempo)
-        let currentTime = now;
-
-        for (let i = 0; i < notes.length; i++) {
-          const [freq, beats] = notes[i];
-          const duration = beats * beatDuration;
-
-          const timerId = setTimeout(() => {
-            try {
-              if (musicState.currentLevelId === 3) {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc.type = "sine"; // sine for smooth orchestral sound
-                osc.frequency.setValueAtTime(freq, ctx.currentTime);
-                
-                gain.gain.setValueAtTime(0.008, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.002, ctx.currentTime + duration * 0.8);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
-
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + duration);
-
-                musicState.musicOscillators.push(osc);
-                musicState.musicGains.push(gain);
-              }
-            } catch (e) {}
-          }, (currentTime - now + i * beatDuration * 1000));
-          musicState.noteTimerIds.push(timerId);
-
-          currentTime += duration;
-        }
-
-        const totalDuration = currentTime - now;
-        if (musicState.currentLevelId === 3) {
-          musicState.loopTimerId = setTimeout(() => {
-            playSquashMusic();
-          }, totalDuration * 1000);
-        }
-      } catch (e) {
-        // Audio context not available
-      }
-    }
 
     // -----------------------------
     // Level Themes (themed arenas)
@@ -1102,53 +828,37 @@
     // -----------------------------
     // Level selection
     // -----------------------------
-    function applyLevel(levelIndex) {
-      if (match.enabled && match.started) return;
-      if (campaign.enabled && campaign.started) return;
-      if (campaign.enabled && state === State.CAMPAIGN_OVER) return;
-
+    function setupLevelConfig(levelIndex, { playMusic = true } = {}) {
       const L = LEVELS[levelIndex];
       arena.level = L;
       arena.theme = L.theme || THEMES.townhouse;
-
-      // Manage background music
-      stopBackgroundMusic();
-      musicState.currentLevelId = L.id;
-      if (L.id === 0) {
-        // Start townhouse background music
-        playTownhouseMusic();
-      } else if (L.id === 1) {
-        // Start moon background music
-        playMoonMusic();
-      } else if (L.id === 2) {
-        // Start Berlin Wall background music
-        playBerlinWallMusic();
-      } else if (L.id === 3) {
-        // Start squash background music
-        playSquashMusic();
-      }
-
+      if (playMusic) playLevelMusic(L.id);
       arena.roofType = L.roofType;
       arena.gravity = L.gravity;
       arena.restitutionFloor = L.restitutionFloor;
       arena.restitutionWall = L.restitutionWall;
       arena.restitutionRoof = L.restitutionRoof;
-
       if (L.roofType === "flat") {
         arena.roofY = L.roofY;
       } else if (L.roofType === "angled") {
         arena.roofLeftY = L.roofLeftY;
         arena.roofRightY = L.roofRightY;
       }
-
       if (L.id === 0) {
-          // Fixed wall height (independent of roof)
-  arena.wallTopY = floorY - 805; // tune this
+        arena.wallTopY = floorY - 805;
       } else if (L.id === 1) {
         arena.wallTopY = 0;
       } else {
         arena.wallTopY = clamp(L.wallTopY, 0, floorY - 40);
       }
+    }
+
+    function applyLevel(levelIndex) {
+      if (match.enabled && match.started) return;
+      if (campaign.enabled && campaign.started) return;
+      if (campaign.enabled && state === State.CAMPAIGN_OVER) return;
+
+      setupLevelConfig(levelIndex);
 
       for (let i = 0; i < 4; i++) {
         const b = document.getElementById("btn" + i);
@@ -1157,7 +867,7 @@
 
       startNewShot();
       state = State.POWER_METER;
-      updateStatus(`Selected: ${L.name}. Lock POWER.`);
+      updateStatus(`Selected: ${LEVELS[levelIndex].name}. Lock POWER.`);
       refreshBeginButton();
       if (isDrawerMobile()) setDrawerOpen(false);
     }
@@ -1301,7 +1011,7 @@
     function jumpImpulse() { const jumpH = player.h * 0.9; return Math.sqrt(2 * arena.gravity * jumpH); }
 
     function attemptJump() {
-      if (state === State.TITLE || state === State.MATCH_OVER || state === State.SINGLE_OVER || state === State.CAMPAIGN_OVER) return;
+      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER || state === State.MATCH_OVER || state === State.SINGLE_OVER || state === State.CAMPAIGN_OVER) return;
       if (!arena.level) return;
       if (match.enabled && !match.started) return;
       if (campaign.enabled && !campaign.started) return;
@@ -1390,6 +1100,9 @@
     const State = Object.freeze({
       TITLE: "TITLE",
       LEADERBOARD_VIEW: "LEADERBOARD_VIEW",
+      MENU_MODE: "MENU_MODE",
+      MENU_MAP: "MENU_MAP",
+      MENU_CHARACTER: "MENU_CHARACTER",
       SELECT_LEVEL: "SELECT_LEVEL",
       POWER_METER: "POWER_METER",
       ANGLE_METER: "ANGLE_METER",
@@ -1400,6 +1113,13 @@
       CAMPAIGN_OVER: "CAMPAIGN_OVER"
     });
     let state = State.TITLE;
+    let menuMouseX = 0, menuMouseY = 0;
+    let menuTwoPlayerStep = 0;
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      menuMouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+      menuMouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    });
 
     // -----------------------------
     // Timing meter
@@ -1538,7 +1258,10 @@
       keys[e.key] = false;
     }, { passive: false });
 
-    canvas.addEventListener("mousedown", () => handleAction());
+    canvas.addEventListener("mousedown", () => {
+      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER) return;
+      handleAction();
+    });
 
     // -----------------------------
     // Touch controls (mobile)
@@ -1651,6 +1374,12 @@
       const rect = canvas.getBoundingClientRect();
       const tx = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
       const ty = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height);
+
+      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER) {
+        handleMenuClick(tx, ty);
+        e.preventDefault();
+        return;
+      }
 
       const hit = panelHitTestPlayerBlocks(tx, ty);
       if (hit != null) {
@@ -2088,9 +1817,7 @@
     }
 
     function resetGame() {
-      stopBackgroundMusic();
-      musicState.currentLevelId = null;
-
+      stopLevelMusic();
       lastThrowPoints = null;
       lastWallHitY = null;
 
@@ -2126,12 +1853,9 @@
       }
 
       startNewShot();
+      setupLevelConfig(0, { playMusic: false });
       refreshBeginButton();
-
-      if (match.enabled) updateStatus("2P reset. Pick a level, assign chars, Begin Game.");
-      else if (campaign.enabled) updateStatus(`Campaign reset. Opponent: ${campaignOpponent().name}. Pick level + character, Begin.`);
-      else updateStatus("Reset. Select a level.");
-      if (isDrawerMobile()) setDrawerOpen(true);
+      state = State.TITLE;
     }
 
     // -----------------------------
@@ -2147,16 +1871,12 @@
     // Actions
     // -----------------------------
     function startFromTitle() {
-      state = State.SELECT_LEVEL;
-      updateStatus(match.enabled ? "Pick a level, assign chars, then Begin Game."
-                 : campaign.enabled ? "Campaign: pick a level + character, then Begin."
-                 : "Pick a level to begin.");
-      refreshBeginButton();
-      if (isDrawerMobile()) setDrawerOpen(true);
+      state = State.MENU_MODE;
     }
 
     function handleAction() {
-      if (state === State.TITLE) { startFromTitle(); return; }
+      if (state === State.TITLE) return; // handled via coordinate click
+      if (state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER) return;
       if (state === State.LEADERBOARD_VIEW) { state = State.TITLE; return; }
 
       if (state === State.MATCH_OVER) return;
@@ -2164,7 +1884,10 @@
       if (!arena.level) return;
 
       if (state === State.SINGLE_OVER) return;
-      if (state === State.CAMPAIGN_OVER) return;
+      if (state === State.CAMPAIGN_OVER) {
+        if (campaign.lastResult === "COMPLETE") { state = State.TITLE; return; }
+        beginCampaignMatch(); return;
+      }
 
       if (!match.enabled && !campaign.enabled && gameMode !== Mode.FREE_PLAY && singleStats.attempts >= SINGLE_TURNS) {
         endSingleRun();
@@ -2809,6 +2532,11 @@
       const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
       const my = (e.clientY - rect.top) * (canvas.height / rect.height);
 
+      if (state === State.TITLE || state === State.MENU_MODE || state === State.MENU_MAP || state === State.MENU_CHARACTER) {
+        handleMenuClick(mx, my);
+        return;
+      }
+
       const hit = panelHitTestPlayerBlocks(mx, my);
       if (hit != null) {
         match.setupPickIndex = hit;
@@ -2819,6 +2547,107 @@
         refreshBeginButton();
       }
     });
+
+    // -----------------------------
+    // Menu geometry helpers
+    // -----------------------------
+    function menuModeCards() {
+      const cw = 290, ch = 190, gap = 18;
+      const total = 4 * cw + 3 * gap;
+      const sx = (W - total) / 2;
+      const sy = (H - ch) / 2 - 20;
+      return Array.from({ length: 4 }, (_, i) => ({ x: sx + i * (cw + gap), y: sy, w: cw, h: ch }));
+    }
+    function menuMapCards() {
+      const cw = 290, ch = 190, gap = 18;
+      const total = 4 * cw + 3 * gap;
+      const sx = (W - total) / 2;
+      const sy = (H - ch) / 2 - 20;
+      return Array.from({ length: 4 }, (_, i) => ({ x: sx + i * (cw + gap), y: sy, w: cw, h: ch }));
+    }
+    function menuCharCards() {
+      const cols = 3, rows = 3, cw = 155, ch = 210, gx = 20, gy = 16;
+      const totalW = cols * cw + (cols - 1) * gx;
+      const totalH = rows * ch + (rows - 1) * gy;
+      const sx = (W - totalW) / 2;
+      const sy = (H - totalH) / 2 + 30;
+      return Array.from({ length: 9 }, (_, i) => {
+        const col = i % cols, row = Math.floor(i / cols);
+        return { x: sx + col * (cw + gx), y: sy + row * (ch + gy), w: cw, h: ch };
+      });
+    }
+    function menuHitCard(mx, my, cards) {
+      for (let i = 0; i < cards.length; i++) {
+        const c = cards[i];
+        if (mx >= c.x && mx <= c.x + c.w && my >= c.y && my <= c.y + c.h) return i;
+      }
+      return null;
+    }
+    function menuHitBack(mx, my) {
+      return mx >= 20 && mx <= 160 && my >= 20 && my <= 60;
+    }
+    function menuHitLeaderboard(mx, my) {
+      return mx >= W / 2 - 100 && mx <= W / 2 + 100 && my >= H - 60 && my <= H - 20;
+    }
+
+    // -----------------------------
+    // Menu click dispatcher
+    // -----------------------------
+    function handleMenuClick(mx, my) {
+      if (state === State.TITLE) {
+        if (menuHitLeaderboard(mx, my)) { state = State.LEADERBOARD_VIEW; return; }
+        startFromTitle();
+        return;
+      }
+      if (state === State.MENU_MODE) {
+        const card = menuHitCard(mx, my, menuModeCards());
+        if (card != null) {
+          const modes = [Mode.SINGLE, Mode.MULTI, Mode.CAMPAIGN, Mode.FREE_PLAY];
+          setMode(modes[card]);
+          state = State.MENU_MAP;
+          return;
+        }
+        if (menuHitLeaderboard(mx, my)) { state = State.LEADERBOARD_VIEW; return; }
+        return;
+      }
+      if (state === State.MENU_MAP) {
+        const card = menuHitCard(mx, my, menuMapCards());
+        if (card != null) {
+          setupLevelConfig(card);
+          menuTwoPlayerStep = 0;
+          state = State.MENU_CHARACTER;
+          return;
+        }
+        if (menuHitBack(mx, my)) { state = State.MENU_MODE; return; }
+        return;
+      }
+      if (state === State.MENU_CHARACTER) {
+        const card = menuHitCard(mx, my, menuCharCards());
+        if (card != null) {
+          if (match.enabled) {
+            match.players[menuTwoPlayerStep].characterId = card;
+            if (menuTwoPlayerStep === 0) {
+              menuTwoPlayerStep = 1;
+            } else {
+              currentCharacter = CHARACTERS[match.players[0].characterId];
+              beginHotseat();
+            }
+          } else {
+            currentCharacter = CHARACTERS[card];
+            if (campaign.enabled) {
+              beginCampaignMatch();
+            } else {
+              startNewShot();
+              state = State.POWER_METER;
+              if (isDrawerMobile()) setDrawerOpen(false);
+            }
+          }
+          return;
+        }
+        if (menuHitBack(mx, my)) { menuTwoPlayerStep = 0; state = State.MENU_MAP; return; }
+        return;
+      }
+    }
 
     function drawSidePanel() {
       ctx.fillStyle = "#0b1220";
@@ -2996,26 +2825,34 @@
     }
 
     function drawTitleScreen() {
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      // Gradient overlay — dark at top, lighter at bottom
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "rgba(0,0,0,0.72)");
+      grad.addColorStop(0.5, "rgba(0,0,0,0.45)");
+      grad.addColorStop(1, "rgba(0,0,0,0.30)");
+      ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
-      ctx.fillRect(W/2 - 360, H/2 - 170, 720, 340);
-
       ctx.textAlign = "center";
+      ctx.shadowColor = "rgba(0,0,0,0.8)";
+      ctx.shadowBlur = 24;
+
       ctx.fillStyle = "#ffffff";
+      ctx.font = "900 118px Trebuchet MS, system-ui";
+      ctx.fillText("BIG BOUNCE", W / 2, H / 2 - 20);
 
-      ctx.font = "bold 86px Trebuchet MS, system-ui";
-      ctx.fillText("BIG BOUNCE", W/2, H/2 - 40);
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.font = "bold 26px Trebuchet MS, system-ui";
+      ctx.fillText("Click anywhere to play", W / 2, H / 2 + 52);
 
-      ctx.font = "bold 22px Trebuchet MS, system-ui";
-      ctx.fillText("Tap or Press SPACE to Start", W/2, H/2 + 20);
-
+      // Leaderboard link
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
       ctx.font = "16px Trebuchet MS, system-ui";
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.fillText("Hotseat: pick level + characters (P1/P2), then Begin Game.", W/2, H/2 + 64);
-      ctx.fillText("Campaign: pick level + your character, then Begin Campaign Match.", W/2, H/2 + 92);
+      ctx.fillText("Leaderboard", W / 2, H - 30);
 
+      ctx.shadowBlur = 0;
       ctx.textAlign = "left";
     }
 
@@ -3079,6 +2916,184 @@
       ctx.fillText("Press SPACE to return to menu", W/2, lbY + lbH - 20);
       
       ctx.textAlign = "left";
+    }
+
+    // -----------------------------
+    // Canvas-based main menu screens
+    // -----------------------------
+    function drawMenuOverlay() {
+      ctx.fillStyle = "rgba(0,0,0,0.62)";
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawMenuCard(card, hovered, title, subtitle, accent) {
+      const r = 14;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(card.x + r, card.y);
+      ctx.lineTo(card.x + card.w - r, card.y);
+      ctx.quadraticCurveTo(card.x + card.w, card.y, card.x + card.w, card.y + r);
+      ctx.lineTo(card.x + card.w, card.y + card.h - r);
+      ctx.quadraticCurveTo(card.x + card.w, card.y + card.h, card.x + card.w - r, card.y + card.h);
+      ctx.lineTo(card.x + r, card.y + card.h);
+      ctx.quadraticCurveTo(card.x, card.y + card.h, card.x, card.y + card.h - r);
+      ctx.lineTo(card.x, card.y + r);
+      ctx.quadraticCurveTo(card.x, card.y, card.x + r, card.y);
+      ctx.closePath();
+
+      ctx.fillStyle = hovered
+        ? "rgba(255,255,255,0.16)"
+        : "rgba(255,255,255,0.07)";
+      ctx.fill();
+
+      ctx.strokeStyle = hovered ? accent : "rgba(255,255,255,0.18)";
+      ctx.lineWidth = hovered ? 2.5 : 1.5;
+      ctx.stroke();
+      ctx.restore();
+
+      const cx = card.x + card.w / 2;
+      ctx.textAlign = "center";
+      ctx.fillStyle = hovered ? "#ffffff" : "rgba(255,255,255,0.88)";
+      ctx.font = "bold 24px Trebuchet MS, system-ui";
+      ctx.fillText(title, cx, card.y + card.h / 2 - 12);
+      ctx.fillStyle = hovered ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.52)";
+      ctx.font = "14px Trebuchet MS, system-ui";
+      ctx.fillText(subtitle, cx, card.y + card.h / 2 + 18);
+      ctx.textAlign = "left";
+    }
+
+    function drawMenuBack() {
+      const hov = menuHitBack(menuMouseX, menuMouseY);
+      ctx.fillStyle = hov ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.50)";
+      ctx.font = "bold 20px Trebuchet MS, system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText("← Back", 30, 46);
+    }
+
+    function drawMenuHeader(text) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 34px Trebuchet MS, system-ui";
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = 10;
+      ctx.fillText(text, W / 2, 80);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = "left";
+    }
+
+    function drawMenuMode() {
+      drawMenuOverlay();
+      drawMenuHeader("SELECT GAME MODE");
+
+      const modeInfo = [
+        { title: "Single Player",  sub: "10 turns · timed shots",   accent: "#4ade80" },
+        { title: "Two Player",     sub: "Hotseat · first to 7 pts",  accent: "#60a5fa" },
+        { title: "Campaign",       sub: "Beat 8 opponents in a row", accent: "#f97316" },
+        { title: "Free Play",      sub: "Unlimited · no pressure",   accent: "#a78bfa" },
+      ];
+      const cards = menuModeCards();
+      for (let i = 0; i < 4; i++) {
+        const hov = menuHitCard(menuMouseX, menuMouseY, cards) === i;
+        drawMenuCard(cards[i], hov, modeInfo[i].title, modeInfo[i].sub, modeInfo[i].accent);
+      }
+
+      // Leaderboard link
+      const lbHov = menuHitLeaderboard(menuMouseX, menuMouseY);
+      ctx.textAlign = "center";
+      ctx.fillStyle = lbHov ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.45)";
+      ctx.font = "16px Trebuchet MS, system-ui";
+      ctx.fillText("Leaderboard", W / 2, H - 30);
+      ctx.textAlign = "left";
+    }
+
+    function drawMenuMap() {
+      drawMenuOverlay();
+      drawMenuBack();
+      drawMenuHeader("SELECT MAP");
+
+      const mapInfo = [
+        { title: "Townhouse",   sub: "Angled roof · normal gravity", accent: "#fb923c" },
+        { title: "Moon",        sub: "No roof · low gravity",        accent: "#a5b4fc" },
+        { title: "Berlin Wall", sub: "No roof · tall wall · heavy",  accent: "#9ca3af" },
+        { title: "Squash",      sub: "Flat roof · high bounce",      accent: "#34d399" },
+      ];
+      const cards = menuMapCards();
+      for (let i = 0; i < 4; i++) {
+        const hov = menuHitCard(menuMouseX, menuMouseY, cards) === i;
+        drawMenuCard(cards[i], hov, mapInfo[i].title, mapInfo[i].sub, mapInfo[i].accent);
+      }
+    }
+
+    function drawMenuCharacter() {
+      drawMenuOverlay();
+      drawMenuBack();
+
+      const header = match.enabled
+        ? (menuTwoPlayerStep === 0 ? "P1 — SELECT CHARACTER" : "P2 — SELECT CHARACTER")
+        : "SELECT CHARACTER";
+      drawMenuHeader(header);
+
+      const cards = menuCharCards();
+      const tierLabel = t => ["", "★", "★★", "★★★", "★★★★", "★★★★★"][t] ?? "";
+      const hovIdx = menuHitCard(menuMouseX, menuMouseY, cards);
+
+      for (let i = 0; i < CHARACTERS.length; i++) {
+        const c = cards[i];
+        const ch = CHARACTERS[i];
+        const hov = hovIdx === i;
+
+        // Card background
+        const r = 10;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(c.x + r, c.y);
+        ctx.lineTo(c.x + c.w - r, c.y);
+        ctx.quadraticCurveTo(c.x + c.w, c.y, c.x + c.w, c.y + r);
+        ctx.lineTo(c.x + c.w, c.y + c.h - r);
+        ctx.quadraticCurveTo(c.x + c.w, c.y + c.h, c.x + c.w - r, c.y + c.h);
+        ctx.lineTo(c.x + r, c.y + c.h);
+        ctx.quadraticCurveTo(c.x, c.y + c.h, c.x, c.y + c.h - r);
+        ctx.lineTo(c.x, c.y + r);
+        ctx.quadraticCurveTo(c.x, c.y, c.x + r, c.y);
+        ctx.closePath();
+        ctx.fillStyle = hov ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.07)";
+        ctx.fill();
+        ctx.strokeStyle = hov ? (ch.color ?? "#ffffff") : "rgba(255,255,255,0.16)";
+        ctx.lineWidth = hov ? 2.5 : 1.5;
+        ctx.stroke();
+        ctx.restore();
+
+        // Character sprite
+        const sprW = 56, sprH = 80;
+        const sprX = c.x + (c.w - sprW) / 2;
+        const sprY = c.y + 14;
+        drawCharacter(sprX, sprY, sprW, sprH, ch.outfit);
+
+        // Name
+        ctx.textAlign = "center";
+        const ncx = c.x + c.w / 2;
+        ctx.fillStyle = hov ? "#ffffff" : "rgba(255,255,255,0.90)";
+        ctx.font = "bold 14px Trebuchet MS, system-ui";
+        ctx.fillText(ch.name, ncx, sprY + sprH + 18);
+
+        // Stats
+        ctx.font = "11px Trebuchet MS, system-ui";
+        ctx.fillStyle = "rgba(255,255,255,0.60)";
+        ctx.fillText(`Ctrl ${tierLabel(ch.tiers.control)}`, ncx, sprY + sprH + 36);
+        ctx.fillText(`Acc ${tierLabel(ch.tiers.accuracy)}  Spd ${tierLabel(ch.tiers.speed)}`, ncx, sprY + sprH + 52);
+        ctx.fillText(`Catch ${tierLabel(ch.tiers.catching)}`, ncx, sprY + sprH + 68);
+        ctx.textAlign = "left";
+      }
+
+      // Show P1 already picked in 2P step 2
+      if (match.enabled && menuTwoPlayerStep === 1 && match.players[0].characterId != null) {
+        const p1ch = CHARACTERS[match.players[0].characterId];
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.font = "15px Trebuchet MS, system-ui";
+        ctx.fillText(`P1: ${p1ch.name}  —  now pick P2`, W / 2, H - 30);
+        ctx.textAlign = "left";
+      }
     }
 
     function drawSingleOverOverlay() {
@@ -3176,7 +3191,7 @@
         ctx.font = "18px Trebuchet MS, system-ui";
         ctx.fillStyle = "rgba(255,255,255,0.9)";
         ctx.fillText(`Time: ${timeStr}`, cx, cy + 20);
-        ctx.fillText("Press Begin to play the next match", cx, cy + 66);
+        ctx.fillText("Press SPACE to play the next match", cx, cy + 66);
       } else {
         ctx.font = "900 56px Trebuchet MS, system-ui";
         ctx.fillText("YOU LOSE", cx, cy - 70);
@@ -3185,7 +3200,7 @@
         ctx.font = "18px Trebuchet MS, system-ui";
         ctx.fillStyle = "rgba(255,255,255,0.9)";
         ctx.fillText(`Time: ${timeStr}`, cx, cy + 20);
-        ctx.fillText("Press Begin to retry", cx, cy + 66);
+        ctx.fillText("Press SPACE to retry", cx, cy + 66);
       }
 
       ctx.textAlign = "left";
@@ -3364,6 +3379,9 @@
       if (state === State.CAMPAIGN_OVER) drawCampaignOverOverlay();
       if (state === State.TITLE) drawTitleScreen();
       if (state === State.LEADERBOARD_VIEW) drawLeaderboardView();
+      if (state === State.MENU_MODE) drawMenuMode();
+      if (state === State.MENU_MAP) drawMenuMap();
+      if (state === State.MENU_CHARACTER) drawMenuCharacter();
 
       ctx.restore();
     }
@@ -3417,13 +3435,7 @@
     window.addEventListener("resize", resizeCanvas);
     window.addEventListener("orientationchange", () => { setTimeout(resizeCanvas, 100); });
 
-    initButtons();
-    setMode(Mode.SINGLE);
-    updateCharacterButtons();
-    resetGame();
-    state = State.TITLE;
-    updateStatus("Tap or press SPACE to start.");
-    refreshBeginButton();
+    setMode(Mode.SINGLE); // also calls resetGame() → setupLevelConfig(0) → state = TITLE
     resizeCanvas();
     requestAnimationFrame(loop);
   </script>
